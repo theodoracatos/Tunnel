@@ -1,5 +1,11 @@
 # TUNNEL - Claude Code Instructions
 
+## Working style
+
+- Just do the task. Don't ask for confirmation before reading files, running searches, or making straightforward edits.
+- Don't ask clarifying questions if the intent is clear from context - make a reasonable choice and do it.
+- Only ask when something is genuinely ambiguous AND the wrong choice would be hard to undo.
+
 ## What is this
 
 TUNNEL is a single-file HTML5 Canvas hold-to-thrust cave flyer game.

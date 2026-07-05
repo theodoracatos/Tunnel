@@ -16,7 +16,7 @@ canvas { display:block; }
 </head>
 <body>
 <canvas id="c"></canvas>
-<audio id="bgm" src="the_mountain.mp3" loop preload="auto" style="display:none"></audio>
+<audio id="bgm" src="the_mountain.mp3" preload="auto" style="display:none"></audio>
 <script>
 // =====================================================================
 // TUNNEL – Hold-to-Thrust Cave Flyer
@@ -73,16 +73,19 @@ let _prog, _halfGap, _wA1, _wA2, _wF1, _wF2;
 function refreshWave() {
     _prog    = Math.min(scrollX / 10000, 1);
     _halfGap = lerp(H * 0.21,  H * 0.092, _prog);
-    _wA1     = lerp(H * 0.07,  H * 0.24,  _prog);
-    _wA2     = lerp(H * 0.035, H * 0.11,  _prog);
+    _wA1     = lerp(H * 0.07,  H * 0.12,  _prog);
+    _wA2     = lerp(H * 0.035, H * 0.055, _prog);
     _wF1     = lerp(0.0025,    0.0048,    _prog);
     _wF2     = lerp(0.0060,    0.0115,    _prog);
 }
 
 function scrollSpd()   { return lerp(200,  560, _prog); }
 function stalSpacing() { return lerp(260,  100, _prog); }
-function stalLenFrac() { return lerp(0.36, 0.60, _prog); }
+function stalLenFrac() { return lerp(0.36, 0.50, _prog); }
 function coinSpacing() { return lerp(600,  320, _prog); }
+function mineSpacing() { return lerp(900,  340, _prog); }
+
+const MINE_R = W * 0.022;
 
 function centerAt(wx) {
     const raw = H / 2
@@ -110,14 +113,31 @@ function boundsBase(wx) {
 
 let phase, py, vy, holding, scrollX, score, newBest;
 let best = parseInt(localStorage.getItem('tunnel_best') || '0');
+let musicOn = localStorage.getItem('tunnel_music') !== '0';
+let fxOn    = localStorage.getItem('tunnel_fx')    !== '0';
+let _btnMusicRect = null, _btnFxRect = null;
 let parts, deadT, flashA, shake, trailY;
 let stalactites, nextStalWx;
 let coins, nextCoinWx;
 let gapBonus;
 let slowTime, shieldCount, shieldFlash;
+let mines, nextMineWx;
 let notifs;
 let gtime = 0;
-let currentPath = [], lastRunPath = [], bestRunPath = [], nextPathSample = 0;
+let ambParts = [];
+let deathMarkers = [];   // persists across runs: { wx, wallY, side }
+const MAX_DEATH_MARKERS = 25;
+
+function initAmbParts() {
+    ambParts = Array.from({ length: 30 }, () => ({
+        x:   Math.random() * W,
+        y:   Math.random() * H,
+        vy:  (Math.random() - 0.5) * 16,
+        par: 0.12 + Math.random() * 0.18,
+        r:   0.5  + Math.random() * 1.0,
+        a:   0.06 + Math.random() * 0.10,
+    }));
+}
 
 function titleScreen() {
     phase = 'title'; py = H / 2; vy = 0; holding = false; scrollX = 0;
@@ -126,7 +146,8 @@ function titleScreen() {
     stalactites = []; nextStalWx = 99999;
     coins = [];     nextCoinWx = 99999;
     gapBonus = 0; slowTime = 0; shieldCount = 0; shieldFlash = 0; notifs = [];
-    currentPath = []; nextPathSample = 0;
+    mines = []; nextMineWx = 99999;
+    initAmbParts();
     refreshWave();
 }
 
@@ -138,7 +159,7 @@ function startPlay() {
     stalactites = []; nextStalWx = 420;
     coins = [];     nextCoinWx = 500;
     gapBonus = 0; slowTime = 0; shieldCount = 0; shieldFlash = 0; notifs = [];
-    currentPath = []; nextPathSample = 0;
+    mines = []; nextMineWx = 1800;
     seedRng(42);
     refreshWave();
     // Force an early red coin so the player meets the shield mechanic quickly
@@ -151,7 +172,7 @@ function startPlay() {
 
 function makeStal(wx, isTop) {
     const rawLen = _halfGap * stalLenFrac() * (0.70 + rng() * 0.60);
-    const length = Math.min(rawLen, _halfGap * 0.60);
+    const length = Math.min(rawLen, _halfGap * 0.50);
     const width  = W * lerp(0.048, 0.030, _prog);
     return { wx, isTop, length, width };
 }
@@ -200,13 +221,24 @@ function coinBlockedByStal(wx, y) {
 }
 
 function makeCoin(wx) {
+    // Wave params depend on scrollX, but the corridor at wx will look different
+    // when the player actually arrives (scrollX = wx - PX). Evaluate everything
+    // at collection time so the coin lands in the corridor the player sees.
+    const [sp, shg, sA1, sA2, sF1, sF2] = [_prog, _halfGap, _wA1, _wA2, _wF1, _wF2];
+    refreshWave(Math.max(0, wx - PX));
+
     const b = boundsBase(wx);
     const margin = (b.bot - b.top) * 0.32;
     const cy     = (b.top + b.bot) / 2;
     const coinY  = cy + (rng() - 0.5) * 2 * margin;
     const r = rng();
-    const type = r < 0.65 ? 'gold' : r < 0.825 ? 'blue' : 'red';
-    if (coinBlockedByStal(wx, coinY)) return null;
+    const blueEnd = lerp(0.65, 0.48, _prog);
+    const redEnd  = lerp(0.82, 0.65, _prog);
+    const type = r < blueEnd ? 'gold' : r < redEnd ? 'blue' : 'red';
+    const blocked = coinBlockedByStal(wx, coinY);
+
+    [_prog, _halfGap, _wA1, _wA2, _wF1, _wF2] = [sp, shg, sA1, sA2, sF1, sF2];
+    if (blocked) return null;
     return { wx, y: coinY, collected: false, type, fade: 1.0 };
 }
 
@@ -249,6 +281,49 @@ function checkCoinCollection() {
             }
         }
     }
+}
+
+// ── Mine system ───────────────────────────────────────────────────────
+
+function makeMine(wx) {
+    // Never place a mine inside a chicane (stalactites from both sides nearby)
+    let nearTop = false, nearBot = false;
+    for (const s of stalactites) {
+        if (Math.abs(s.wx - wx) > 300) continue;
+        if (s.isTop) nearTop = true; else nearBot = true;
+    }
+    if (nearTop && nearBot) return null;
+
+    const bobAmp = lerp(H * 0.02, H * 0.035, _prog);
+    const b      = boundsBase(wx);
+    const margin = MINE_R + PR * 2.5;
+    let lo = b.top + margin, hi = b.bot - margin;
+
+    // Push mine away from single nearby stalactite tips
+    for (const s of stalactites) {
+        if (Math.abs(s.wx - wx) > 300) continue;
+        const sb = boundsBase(s.wx);
+        if (s.isTop) {
+            const tipY = sb.top + s.length;
+            lo = Math.max(lo, tipY + bobAmp);
+        } else {
+            const tipY = sb.bot - s.length;
+            hi = Math.min(hi, tipY - bobAmp);
+        }
+    }
+
+    if (hi - lo < MINE_R * 2) return null;
+    const baseY = lo + rng() * (hi - lo);
+    return { wx, baseY, phase: rng() * Math.PI * 2, bobAmp };
+}
+
+function maintainMines() {
+    while (nextMineWx < scrollX + W + 600) {
+        const mine = makeMine(nextMineWx);
+        if (mine) mines.push(mine);
+        nextMineWx += mineSpacing() * (0.70 + rng() * 0.60);
+    }
+    while (mines.length && mines[0].wx < scrollX - 150) mines.shift();
 }
 
 // ── Triangle-circle collision ─────────────────────────────────────────
@@ -307,32 +382,78 @@ function burstCoin(x, y, baseHue = 44) {
 // ── Audio ─────────────────────────────────────────────────────────────
 
 let _ac = null, _tNode = null, _tGain = null;
+let _bgmBuf = null, _bgmBufRev = null, _bgmNode = null, _bgmGain = null;
+let _bgmDir = 1, _bgmActive = false;
 
 function _startBgMusic() {
+    if (!musicOn) return;
+    _bgmActive = true;
+    _bgmDir = 1;
+    if (_bgmBuf) { _playBgmBuffer(); return; }
+    // buffer still decoding - use audio element; hand off to Web Audio when it ends
     const el = document.getElementById('bgm');
     el.volume = 0.32;
     el.currentTime = 0;
     el.play().catch(() => {});
+    el.onended = () => {
+        el.onended = null;
+        if (_bgmActive && _bgmBuf) { _bgmDir = -1; _playBgmBuffer(); }
+    };
+}
+
+function _playBgmBuffer() {
+    if (!_ac || !_bgmBuf || !_bgmActive) return;
+    _bgmGain = _bgmGain || (() => {
+        const g = _ac.createGain(); g.gain.value = 0.32; g.connect(_ac.destination); return g;
+    })();
+    _bgmNode = _ac.createBufferSource();
+    _bgmNode.buffer = _bgmDir === 1 ? _bgmBuf : _bgmBufRev;
+    _bgmNode.connect(_bgmGain);
+    _bgmNode.onended = () => { _bgmDir *= -1; _playBgmBuffer(); };
+    _bgmNode.start();
 }
 
 function _fadeBgMusic() {
+    _bgmActive = false;
+    // fade audio element if still playing (pre-buffer fallback)
     const el = document.getElementById('bgm');
-    if (!el || el.paused) return;
-    const step = el.volume / 18;
-    const id = setInterval(() => {
-        if (el.volume > step) {
-            el.volume = Math.max(0, el.volume - step);
-        } else {
-            el.volume = 0;
-            el.pause();
-            clearInterval(id);
-        }
-    }, 40);  // ~18 * 40ms = 700ms fade
+    if (el && !el.paused) {
+        const step = el.volume / 18;
+        const id = setInterval(() => {
+            if (el.volume > step) {
+                el.volume = Math.max(0, el.volume - step);
+            } else {
+                el.volume = 0; el.pause(); clearInterval(id);
+            }
+        }, 40);
+    }
+    // fade Web Audio bgm gain
+    if (_bgmGain && _bgmNode) {
+        const t = _ac.currentTime;
+        _bgmGain.gain.cancelScheduledValues(t);
+        _bgmGain.gain.setValueAtTime(_bgmGain.gain.value, t);
+        _bgmGain.gain.linearRampToValueAtTime(0.001, t + 0.7);
+        const n = _bgmNode; _bgmNode = null;
+        setTimeout(() => { try { n.stop(); } catch(e){} }, 750);
+    }
 }
 
 function _initAC() {
     if (_ac) { if (_ac.state === 'suspended') _ac.resume(); return; }
     _ac = new (window.AudioContext || window.webkitAudioContext)();
+    fetch('the_mountain.mp3')
+        .then(r => r.arrayBuffer())
+        .then(ab => _ac.decodeAudioData(ab))
+        .then(buf => {
+            _bgmBuf = buf;
+            _bgmBufRev = _ac.createBuffer(buf.numberOfChannels, buf.length, buf.sampleRate);
+            for (let c = 0; c < buf.numberOfChannels; c++) {
+                const fwd = buf.getChannelData(c);
+                const rev = _bgmBufRev.getChannelData(c);
+                for (let i = 0; i < buf.length; i++) rev[i] = fwd[buf.length - 1 - i];
+            }
+        })
+        .catch(() => {});
 }
 
 function _noiseBuf(dur) {
@@ -344,7 +465,7 @@ function _noiseBuf(dur) {
 }
 
 function sfxCoin() {
-    if (!_ac) return;
+    if (!_ac || !fxOn) return;
     const t = _ac.currentTime;
     [600, 900].forEach((freq, i) => {
         const o = _ac.createOscillator(), g = _ac.createGain();
@@ -358,7 +479,7 @@ function sfxCoin() {
 }
 
 function sfxDie() {
-    if (!_ac) return;
+    if (!_ac || !fxOn) return;
     const t   = _ac.currentTime;
     const src = _ac.createBufferSource();
     src.buffer = _noiseBuf(0.6);
@@ -374,7 +495,7 @@ function sfxDie() {
 }
 
 function sfxSlow() {
-    if (!_ac) return;
+    if (!_ac || !fxOn) return;
     const t = _ac.currentTime;
     [480, 360, 270].forEach((freq, i) => {
         const o = _ac.createOscillator(), g = _ac.createGain();
@@ -390,7 +511,7 @@ function sfxSlow() {
 }
 
 function sfxShield() {
-    if (!_ac) return;
+    if (!_ac || !fxOn) return;
     const t = _ac.currentTime;
     [500, 750, 1000, 1300].forEach((freq, i) => {
         const o = _ac.createOscillator(), g = _ac.createGain();
@@ -404,7 +525,7 @@ function sfxShield() {
 }
 
 function sfxShieldBreak() {
-    if (!_ac) return;
+    if (!_ac || !fxOn) return;
     const t   = _ac.currentTime;
     const src = _ac.createBufferSource();
     src.buffer = _noiseBuf(0.3);
@@ -417,8 +538,9 @@ function sfxShieldBreak() {
     src.start(t); src.stop(t + 0.30);
 }
 
+
 function thrustOn() {
-    if (!_ac || _tNode) return;
+    if (!_ac || _tNode || !fxOn) return;
     const src = _ac.createBufferSource();
     src.buffer = _noiseBuf(0.5); src.loop = true;
     const flt = _ac.createBiquadFilter();
@@ -442,7 +564,23 @@ function thrustOff() {
 
 // ── Input ─────────────────────────────────────────────────────────────
 
-function onDown() {
+function inRect(cx, cy, r) { return cx >= r.x && cx <= r.x+r.w && cy >= r.y && cy <= r.y+r.h; }
+function onDown(e) {
+    if (phase === 'title' && e) {
+        const rect = cv.getBoundingClientRect();
+        const cx = (e.clientX - rect.left) * (W / rect.width);
+        const cy = (e.clientY - rect.top)  * (H / rect.height);
+        if (_btnMusicRect && inRect(cx, cy, _btnMusicRect)) {
+            musicOn = !musicOn;
+            localStorage.setItem('tunnel_music', musicOn ? '1' : '0');
+            return;
+        }
+        if (_btnFxRect && inRect(cx, cy, _btnFxRect)) {
+            fxOn = !fxOn;
+            localStorage.setItem('tunnel_fx', fxOn ? '1' : '0');
+            return;
+        }
+    }
     _initAC();
     if (phase === 'title') { startPlay(); return; }
     if (phase === 'dead' && deadT > 0.9) { startPlay(); return; }
@@ -451,7 +589,7 @@ function onDown() {
 }
 function onUp() { holding = false; thrustOff(); }
 
-window.addEventListener('pointerdown', e => { e.preventDefault(); onDown(); });
+window.addEventListener('pointerdown', e => { e.preventDefault(); onDown(e); });
 window.addEventListener('pointerup',   e => { e.preventDefault(); onUp();   });
 window.addEventListener('keydown', e => {
     if (['Space','ArrowUp'].includes(e.code)) { e.preventDefault(); onDown(); }
@@ -493,7 +631,16 @@ function update(dt) {
     if (phase === 'title') {
         scrollX += 110 * dt;
         refreshWave();
-        py += (centerAt(scrollX + PX) - py) * dt * 2.5;
+        const { top: _tTop } = boundsAt(scrollX + PX);
+        py += (_tTop + PR * 2.5 - py) * dt * 2.5;
+        const aTSpd = 110 * 0.18;
+        for (const p of ambParts) {
+            p.x -= aTSpd * p.par * dt;
+            p.y += p.vy * dt;
+            if (p.x < -4) p.x += W + 8;
+            if (p.y < 0)  p.y = H;
+            if (p.y > H)  p.y = 0;
+        }
         return;
     }
 
@@ -512,12 +659,6 @@ function update(dt) {
     refreshWave();
     score = Math.floor(scrollX / 60);
 
-    // Record path for ghost replay (sample every 30 world-px)
-    if (scrollX >= nextPathSample) {
-        currentPath.push(py);
-        nextPathSample += 30;
-    }
-
     // Trail
     trailY.push(py);
     if (trailY.length > 10) trailY.shift();
@@ -525,6 +666,7 @@ function update(dt) {
     // Maintain lists
     maintainStalactites();
     maintainCoins();
+    maintainMines();
 
     // Fade coins that are blocked by a stalactite or have scrolled off the left edge
     for (const coin of coins) {
@@ -537,16 +679,24 @@ function update(dt) {
         }
     }
 
-    // Wall collision
+    // Wall + stalactite collision
     for (const dx of [-PR * 0.7, 0, PR * 0.7]) {
         const b = boundsAt(scrollX + PX + dx);
         if (py - PR < b.top || py + PR > b.bot) { if (die()) return; break; }
     }
     if (py - PR < 0 || py + PR > H) { if (die()) return; }
-
-    // Stalactite collision
     for (const s of stalactites) {
         if (stalHit(s)) { if (die()) return; break; }
+    }
+
+    // Mine collision
+    const mineHitR2 = (PR + MINE_R) * (PR + MINE_R);
+    for (const m of mines) {
+        const sx = m.wx - scrollX;
+        if (sx < -80 || sx > W + 80) continue;
+        const my = m.baseY + m.bobAmp * Math.sin(gtime * 1.8 + m.phase);
+        const dx = PX - sx, dy = py - my;
+        if (dx*dx + dy*dy < mineHitR2) { if (die()) return; break; }
     }
 
     // Coin collection
@@ -555,6 +705,16 @@ function update(dt) {
     shake       = Math.max(0, shake       - dt * 30);
     shieldFlash = Math.max(0, shieldFlash - dt * 5);
     flashA      = Math.max(0, flashA      - dt * 5);
+
+    // Ambient motes drift at ~18% of play scroll speed (parallax)
+    const aSpd = spd * 0.18;
+    for (const p of ambParts) {
+        p.x -= aSpd * p.par * dt;
+        p.y += p.vy * dt;
+        if (p.x < -4) p.x += W + 8;
+        if (p.y < 0)  p.y = H;
+        if (p.y > H)  p.y = 0;
+    }
 }
 
 function die() {
@@ -571,8 +731,13 @@ function die() {
     thrustOff();
     phase = 'dead'; deadT = 0; flashA = 1.0; shake = 14; holding = false;
     newBest = score > best;
-    if (newBest) { best = score; localStorage.setItem('tunnel_best', best); bestRunPath = currentPath.slice(); }
-    lastRunPath = currentPath.slice();
+    if (newBest) { best = score; localStorage.setItem('tunnel_best', best); }
+    // Record a death marker on the nearest wall
+    const _dmWx = scrollX + PX;
+    const _dmB  = boundsAt(_dmWx);
+    const _dmWY = py < (_dmB.top + _dmB.bot) / 2 ? _dmB.top : _dmB.bot;
+    deathMarkers.push({ wx: _dmWx, wallY: _dmWY });
+    if (deathMarkers.length > MAX_DEATH_MARKERS) deathMarkers.shift();
     burst(PX, py);
     sfxDie();
     _fadeBgMusic();
@@ -592,7 +757,6 @@ function getTheme() {
             wall:     lerpClr([23,16,42],   [30,12,6],    u),
             stal:     lerpClr([29,19,53],   [40,15,8],    u),
             stalEdge: lerpClr([185,95,255], [255,120,30], u),
-            stalTip:  lerpClr([215,150,255],[255,180,60], u),
             wallBase: lerpClr([155,75,255], [255,100,30], u),
         };
     } else {
@@ -601,7 +765,6 @@ function getTheme() {
             wall:     lerpClr([30,12,6],    [6,22,14],    u),
             stal:     lerpClr([40,15,8],    [8,30,18],    u),
             stalEdge: lerpClr([255,120,30], [30,255,120], u),
-            stalTip:  lerpClr([255,180,60], [80,255,160], u),
             wallBase: lerpClr([255,100,30], [30,255,120], u),
         };
     }
@@ -653,6 +816,48 @@ function draw() {
     }
     const edgeClrInner = lerpClr(theme.wall, theme.wallBase, 0.28);
 
+    // Stalactite bodies - drawn before walls so the wall fill covers the base join
+    for (const s of stalactites) {
+        const sx = s.wx - scrollX;
+        if (sx < -70 || sx > W+70) continue;
+        const b = boundsAt(s.wx), hw = s.width / 2;
+        const tipY  = s.isTop ? b.top + s.length : b.bot - s.length;
+        const baseY = s.isTop ? b.top - 8 : b.bot + 8;
+        const cp1y  = s.isTop ? b.top + s.length * 0.45 : b.bot - s.length * 0.45;
+        const cp2y  = s.isTop ? b.top + s.length * 0.88 : b.bot - s.length * 0.88;
+        const stalTipClr = lerpClr(theme.stal, theme.stalEdge, 0.38);
+
+        let stalGrd;
+        if (s.isTop) {
+            stalGrd = ctx.createLinearGradient(sx, baseY, sx, tipY);
+            stalGrd.addColorStop(0, rgb(theme.stal));
+            stalGrd.addColorStop(1, rgb(stalTipClr));
+        } else {
+            stalGrd = ctx.createLinearGradient(sx, tipY, sx, baseY);
+            stalGrd.addColorStop(0, rgb(stalTipClr));
+            stalGrd.addColorStop(1, rgb(theme.stal));
+        }
+
+        ctx.beginPath();
+        ctx.moveTo(sx - hw, baseY);
+        ctx.lineTo(sx + hw, baseY);
+        ctx.bezierCurveTo(sx + hw, cp1y,  sx + hw * 0.08, cp2y,  sx, tipY);
+        ctx.bezierCurveTo(sx - hw * 0.08, cp2y,  sx - hw, cp1y,  sx - hw, baseY);
+        ctx.closePath();
+        ctx.fillStyle = stalGrd;
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.moveTo(sx - hw, baseY);
+        ctx.bezierCurveTo(sx - hw, cp1y,  sx - hw * 0.08, cp2y,  sx, tipY);
+        ctx.bezierCurveTo(sx + hw * 0.08, cp2y,  sx + hw, cp1y,  sx + hw, baseY);
+        ctx.strokeStyle = rgb(theme.stalEdge, 0.68);
+        ctx.lineWidth = 1.5;
+        ctx.lineCap = 'butt';
+        ctx.stroke();
+        ctx.lineCap = 'round';
+    }
+
     // Top wall – dark at canvas top, accent-tinted at corridor edge
     ctx.beginPath();
     ctx.moveTo(xs[0], -2);
@@ -679,47 +884,6 @@ function draw() {
     ctx.fillStyle = botGrd;
     ctx.fill();
 
-    // Stalactites
-    for (const s of stalactites) {
-        const sx = s.wx - scrollX;
-        if (sx < -70 || sx > W+70) continue;
-        const b = boundsAt(s.wx), hw = s.width / 2;
-        const tipY = s.isTop ? b.top + s.length : b.bot - s.length;
-
-        ctx.beginPath();
-        if (s.isTop) {
-            ctx.moveTo(sx-hw, b.top); ctx.lineTo(sx+hw, b.top); ctx.lineTo(sx, tipY);
-        } else {
-            ctx.moveTo(sx-hw, b.bot); ctx.lineTo(sx+hw, b.bot); ctx.lineTo(sx, tipY);
-        }
-        ctx.closePath();
-        const stalTipClr = lerpClr(theme.stal, theme.stalEdge, 0.38);
-        let stalGrd;
-        if (s.isTop) {
-            stalGrd = ctx.createLinearGradient(sx, b.top, sx, tipY);
-            stalGrd.addColorStop(0, rgb(theme.wall));
-            stalGrd.addColorStop(1, rgb(stalTipClr));
-        } else {
-            stalGrd = ctx.createLinearGradient(sx, tipY, sx, b.bot);
-            stalGrd.addColorStop(0, rgb(stalTipClr));
-            stalGrd.addColorStop(1, rgb(theme.wall));
-        }
-        ctx.fillStyle = stalGrd;
-        ctx.fill();
-        ctx.strokeStyle = rgb(theme.stalEdge, 0.72);
-        ctx.lineWidth = 1.5;
-        ctx.stroke();
-
-        // Glowing tip
-        ctx.beginPath();
-        ctx.arc(sx, tipY, 2.8, 0, Math.PI*2);
-        ctx.fillStyle   = rgb(theme.stalTip, 0.90);
-        ctx.shadowColor = rgb(theme.stalEdge, 0.95);
-        ctx.shadowBlur  = 12;
-        ctx.fill();
-        ctx.shadowBlur  = 0;
-    }
-
     // Wall edge glow – shifts from theme base → cyan when bonus is active
     const bonusT  = Math.min(gapBonus / GAP_BONUS_MAX, 1);
     const wb      = theme.wallBase;
@@ -728,19 +892,107 @@ function draw() {
     const edgeB   = Math.round(lerp(wb[2], 255, bonusT));
     const edgeClr = `rgba(${edgeR},${edgeG},${edgeB},0.55)`;
 
+    ctx.strokeStyle = edgeClr; ctx.lineWidth = 2;
+    let brk = true;
     ctx.beginPath();
     for (let i = 0; i < n; i++) {
-        if (i === 0) ctx.moveTo(xs[i], topArr[i]);
-        else         ctx.lineTo(xs[i], topArr[i]);
+        const wx = scrollX + xs[i];
+        const blocked = stalactites.some(s => s.isTop && Math.abs(wx - s.wx) <= s.width / 2);
+        if (blocked) { brk = true; continue; }
+        if (brk) { ctx.moveTo(xs[i], topArr[i]); brk = false; }
+        else      ctx.lineTo(xs[i], topArr[i]);
     }
-    ctx.strokeStyle = edgeClr; ctx.lineWidth = 2; ctx.stroke();
+    ctx.stroke();
 
+    brk = true;
     ctx.beginPath();
     for (let i = 0; i < n; i++) {
-        if (i === 0) ctx.moveTo(xs[i], botArr[i]);
-        else         ctx.lineTo(xs[i], botArr[i]);
+        const wx = scrollX + xs[i];
+        const blocked = stalactites.some(s => !s.isTop && Math.abs(wx - s.wx) <= s.width / 2);
+        if (blocked) { brk = true; continue; }
+        if (brk) { ctx.moveTo(xs[i], botArr[i]); brk = false; }
+        else      ctx.lineTo(xs[i], botArr[i]);
     }
-    ctx.strokeStyle = edgeClr; ctx.lineWidth = 2; ctx.stroke();
+    ctx.stroke();
+
+    // Death markers – rings etched into wall at each death spot
+    for (const m of deathMarkers) {
+        const sx = m.wx - scrollX;
+        if (sx < -80 || sx > W + 80) continue;
+        const mr = PR * 1.55;
+        ctx.beginPath();
+        ctx.arc(sx, m.wallY, mr, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(255,55,55,0.48)';
+        ctx.lineWidth   = 1.8;
+        ctx.shadowColor = 'rgba(255,30,30,0.55)';
+        ctx.shadowBlur  = 6;
+        ctx.stroke();
+        ctx.shadowBlur  = 0;
+        // Small center dot
+        ctx.beginPath();
+        ctx.arc(sx, m.wallY, 1.8, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(255,80,80,0.50)';
+        ctx.fill();
+    }
+
+    // Mines
+    for (const m of mines) {
+        const sx = m.wx - scrollX;
+        if (sx < -60 || sx > W + 60) continue;
+        const my = m.baseY + m.bobAmp * Math.sin(gtime * 1.8 + m.phase);
+        const pulse = 0.85 + 0.15 * Math.sin(gtime * 4.5 + m.phase);
+
+        // Outer danger glow
+        const mgrd = ctx.createRadialGradient(sx, my, 0, sx, my, MINE_R * 2.8 * pulse);
+        mgrd.addColorStop(0,   'rgba(255,40,20,0.22)');
+        mgrd.addColorStop(0.5, 'rgba(255,20,10,0.08)');
+        mgrd.addColorStop(1,   'transparent');
+        ctx.beginPath();
+        ctx.arc(sx, my, MINE_R * 2.8 * pulse, 0, Math.PI * 2);
+        ctx.fillStyle = mgrd;
+        ctx.fill();
+
+        // Spikes (8 directions)
+        ctx.strokeStyle = 'rgba(200,60,40,0.80)';
+        ctx.lineWidth   = 1.4;
+        for (let i = 0; i < 8; i++) {
+            const a = (i / 8) * Math.PI * 2;
+            ctx.beginPath();
+            ctx.moveTo(sx + Math.cos(a) * MINE_R * 0.85, my + Math.sin(a) * MINE_R * 0.85);
+            ctx.lineTo(sx + Math.cos(a) * (MINE_R * 1.65), my + Math.sin(a) * (MINE_R * 1.65));
+            ctx.stroke();
+        }
+
+        // Body
+        ctx.beginPath();
+        ctx.arc(sx, my, MINE_R, 0, Math.PI * 2);
+        ctx.fillStyle   = '#1a0808';
+        ctx.shadowColor = `rgba(255,50,20,${0.70 + 0.25 * pulse})`;
+        ctx.shadowBlur  = 14;
+        ctx.fill();
+        ctx.shadowBlur  = 0;
+        ctx.strokeStyle = 'rgba(200,60,40,0.70)';
+        ctx.lineWidth   = 1.5;
+        ctx.stroke();
+
+        // Hot core highlight
+        const core = ctx.createRadialGradient(sx - MINE_R*0.22, my - MINE_R*0.22, 0, sx, my, MINE_R * 0.65);
+        core.addColorStop(0,   `rgba(255,160,80,${0.55 * pulse})`);
+        core.addColorStop(1,   'transparent');
+        ctx.beginPath();
+        ctx.arc(sx, my, MINE_R, 0, Math.PI * 2);
+        ctx.fillStyle = core;
+        ctx.fill();
+    }
+
+    // Ambient motes – subtle dust drifting through the tunnel
+    const [mr, mg, mb] = theme.wallBase;
+    for (const p of ambParts) {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(${mr},${mg},${mb},${p.a})`;
+        ctx.fill();
+    }
 
     // Coins
     for (const coin of coins) {
@@ -799,6 +1051,7 @@ function draw() {
     }
 
 
+
     // Player trail
     for (let i = 0; i < trailY.length; i++) {
         const frac = i / trailY.length, off = (trailY.length-1-i)*5;
@@ -806,26 +1059,6 @@ function draw() {
         ctx.arc(PX-off, trailY[i], PR*frac*0.65, 0, Math.PI*2);
         ctx.fillStyle = `rgba(70,200,255,${frac*0.26})`;
         ctx.fill();
-    }
-
-    // Ghost players (best run = gold, last run = dim cyan)
-    if (phase === 'play') {
-        const si = Math.floor(scrollX / 30);
-        if (bestRunPath.length > si) {
-            ctx.beginPath();
-            ctx.arc(PX, bestRunPath[si], PR * 0.88, 0, Math.PI*2);
-            ctx.fillStyle   = 'rgba(255,200,50,0.32)';
-            ctx.shadowColor = 'rgba(255,180,20,0.55)';
-            ctx.shadowBlur  = 8;
-            ctx.fill();
-            ctx.shadowBlur  = 0;
-        }
-        if (lastRunPath.length > si) {
-            ctx.beginPath();
-            ctx.arc(PX, lastRunPath[si], PR * 0.88, 0, Math.PI*2);
-            ctx.fillStyle = 'rgba(160,210,255,0.22)';
-            ctx.fill();
-        }
     }
 
     // Shield rings (one per charge)
@@ -929,6 +1162,7 @@ function draw() {
         ctx.fillRect(W*0.225, barY, barW, barH);
     }
 
+
     if (phase === 'title') {
         ctx.textBaseline = 'middle';
         ctx.font      = `bold ${W*0.085}px 'Courier New',monospace`;
@@ -937,33 +1171,35 @@ function draw() {
 
         ctx.font      = `${W*0.030}px 'Courier New',monospace`;
         ctx.fillStyle = 'rgba(130,160,230,0.65)';
-        ctx.fillText('HOLD = thrust up', W/2, H/2-H*0.005);
-        ctx.fillText('RELEASE = gravity', W/2, H/2+H*0.055);
+        ctx.fillText('HOLD to climb  /  RELEASE to fall', W/2, H/2+H*0.025);
 
-        // Coin legend
-        const iconR  = W * 0.028;
-        const iconY  = H/2 + H*0.115;
-        const iconGap = W * 0.19;
-        [
-            { type: 'gold', x: W/2 - iconGap, label: '+WIDE',   color: [255,220,55] },
-            { type: 'blue', x: W/2,            label: '+SLOW',   color: [60,210,255] },
-            { type: 'red',  x: W/2 + iconGap,  label: '+SHIELD', color: [255,90,90]  },
-        ].forEach(c => {
-            drawCoinIcon(c.x, iconY, c.type, iconR);
-            ctx.font = `${W*0.024}px 'Courier New',monospace`;
-            const [cr,cg,cb] = c.color;
-            ctx.fillStyle = `rgba(${cr},${cg},${cb},0.72)`;
-            ctx.fillText(c.label, c.x, iconY + iconR + W*0.030);
-        });
+        ctx.font      = `bold ${W*0.036}px 'Courier New',monospace`;
+        ctx.fillStyle = 'rgba(175,205,255,0.88)';
+        ctx.fillText('tap / click / space', W/2, H/2+H*0.135);
 
-        ctx.font      = `${W*0.028}px 'Courier New',monospace`;
-        ctx.fillStyle = 'rgba(130,160,230,0.55)';
-        ctx.fillText('tap / click / space', W/2, H/2+H*0.215);
+        // Audio toggle buttons
+        const tBtnY = H/2 + H*0.215;
+        ctx.font = `${W*0.024}px 'Courier New',monospace`;
+        const drawBtn = (bCx, bCy, label, active) => {
+            const m  = ctx.measureText(label);
+            const bw = m.width + W*0.038, bh = H*0.050;
+            const bx = bCx - bw/2, by = bCy - bh/2;
+            ctx.fillStyle   = active ? 'rgba(35,70,45,0.60)' : 'rgba(35,35,45,0.40)';
+            ctx.fillRect(bx, by, bw, bh);
+            ctx.strokeStyle = active ? 'rgba(100,220,120,0.45)' : 'rgba(120,110,135,0.30)';
+            ctx.lineWidth   = 1;
+            ctx.strokeRect(bx, by, bw, bh);
+            ctx.fillStyle   = active ? 'rgba(110,230,130,0.90)' : 'rgba(145,130,155,0.65)';
+            ctx.fillText(label, bCx, bCy);
+            return { x: bx, y: by, w: bw, h: bh };
+        };
+        _btnMusicRect = drawBtn(W * 0.285, tBtnY, musicOn ? 'MUSIC ON' : 'MUSIC OFF', musicOn);
+        _btnFxRect    = drawBtn(W * 0.715, tBtnY, fxOn    ? 'FX ON'    : 'FX OFF',    fxOn);
 
         if (best > 0) {
             ctx.font      = `${W*0.026}px 'Courier New',monospace`;
             ctx.fillStyle = 'rgba(95,125,195,0.48)';
-            ctx.fillText(`BEST  ${best}`, W/2, H/2+H*0.275);
+            ctx.fillText(`BEST  ${best}`, W/2, H/2+H*0.280);
         }
     }
 
@@ -987,14 +1223,14 @@ function draw() {
 
         if (best > 0 && !newBest) {
             ctx.font      = `${W*0.024}px 'Courier New',monospace`;
-            ctx.fillStyle = `rgba(120,145,210,${a*0.55})`;
+            ctx.fillStyle = `rgba(160,185,255,${a*0.90})`;
             ctx.fillText(`best  ${best}`, W/2, H/2 + H*0.08);
         }
 
         if (deadT > 0.9) {
             const b = Math.min(1, (deadT - 0.9) * 4);
             ctx.font      = `${W*0.026}px 'Courier New',monospace`;
-            ctx.fillStyle = `rgba(130,160,230,${b * 0.60})`;
+            ctx.fillStyle = `rgba(180,210,255,${b * 0.95})`;
             ctx.fillText('tap to continue', W/2, H/2 + H*0.18);
         }
     }
