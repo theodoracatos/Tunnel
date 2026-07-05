@@ -109,6 +109,7 @@ function titleScreen() {
 }
 
 function startPlay() {
+    thrustOff();
     phase = 'play'; py = H / 2; vy = 0; holding = false; scrollX = 0;
     score = 0; newBest = false;
     parts = []; deadT = 0; flashA = 0; shake = 0; trailY = [];
@@ -178,6 +179,7 @@ function checkCoinCollection() {
             score += 3;
             burstCoin(sx, coin.y);
             notifs.push({ x: sx, y: coin.y - 14, life: 1.1 });
+            sfxCoin();
         }
     }
 }
@@ -235,13 +237,85 @@ function burstCoin(x, y) {
     }
 }
 
+// ── Audio ─────────────────────────────────────────────────────────────
+
+let _ac = null, _tNode = null, _tGain = null;
+
+function _initAC() {
+    if (_ac) { if (_ac.state === 'suspended') _ac.resume(); return; }
+    _ac = new (window.AudioContext || window.webkitAudioContext)();
+}
+
+function _noiseBuf(dur) {
+    const len = Math.ceil(_ac.sampleRate * dur);
+    const buf = _ac.createBuffer(1, len, _ac.sampleRate);
+    const d   = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = Math.random()*2-1;
+    return buf;
+}
+
+function sfxCoin() {
+    if (!_ac) return;
+    const t = _ac.currentTime;
+    [600, 900].forEach((freq, i) => {
+        const o = _ac.createOscillator(), g = _ac.createGain();
+        o.connect(g); g.connect(_ac.destination);
+        o.type = 'sine'; o.frequency.value = freq;
+        const t0 = t + i * 0.10;
+        g.gain.setValueAtTime(0.14, t0);
+        g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.15);
+        o.start(t0); o.stop(t0 + 0.16);
+    });
+}
+
+function sfxDie() {
+    if (!_ac) return;
+    const t   = _ac.currentTime;
+    const src = _ac.createBufferSource();
+    src.buffer = _noiseBuf(0.6);
+    const flt = _ac.createBiquadFilter();
+    flt.type = 'lowpass';
+    flt.frequency.setValueAtTime(900, t);
+    flt.frequency.exponentialRampToValueAtTime(55, t + 0.45);
+    const g = _ac.createGain();
+    g.gain.setValueAtTime(0.50, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.60);
+    src.connect(flt); flt.connect(g); g.connect(_ac.destination);
+    src.start(t); src.stop(t + 0.62);
+}
+
+function thrustOn() {
+    if (!_ac || _tNode) return;
+    const src = _ac.createBufferSource();
+    src.buffer = _noiseBuf(0.5); src.loop = true;
+    const flt = _ac.createBiquadFilter();
+    flt.type = 'bandpass'; flt.frequency.value = 115; flt.Q.value = 0.9;
+    _tGain = _ac.createGain();
+    _tGain.gain.setValueAtTime(0.001, _ac.currentTime);
+    _tGain.gain.linearRampToValueAtTime(0.20, _ac.currentTime + 0.07);
+    src.connect(flt); flt.connect(_tGain); _tGain.connect(_ac.destination);
+    src.start(); _tNode = src;
+}
+
+function thrustOff() {
+    if (!_tNode) return;
+    const t = _ac.currentTime;
+    _tGain.gain.cancelScheduledValues(t);
+    _tGain.gain.setValueAtTime(_tGain.gain.value, t);
+    _tGain.gain.linearRampToValueAtTime(0.001, t + 0.10);
+    const n = _tNode; _tNode = null; _tGain = null;
+    setTimeout(() => { try { n.stop(); } catch(e){} }, 200);
+}
+
 // ── Input ─────────────────────────────────────────────────────────────
 
 function onDown() {
+    _initAC();
     if (phase === 'title') { startPlay(); return; }
     holding = true;
+    if (phase === 'play') thrustOn();
 }
-function onUp() { holding = false; }
+function onUp() { holding = false; thrustOff(); }
 
 window.addEventListener('pointerdown', e => { e.preventDefault(); onDown(); });
 window.addEventListener('pointerup',   e => { e.preventDefault(); onUp();   });
@@ -330,10 +404,12 @@ function update(dt) {
 }
 
 function die() {
+    thrustOff();
     phase = 'dead'; deadT = 0; flashA = 1.0; shake = 14; holding = false;
     newBest = score > best;
     if (newBest) best = score;
     burst(PX, py);
+    sfxDie();
 }
 
 // ── Draw ──────────────────────────────────────────────────────────────
