@@ -3,3 +3,11 @@ obj/
 /packages/
 riderModule.iml
 /_ReSharper.Caches/
+
+# Xcode
+xcuserdata/
+*.xcuserstate
+DerivedData/
+*.ipa
+*.dSYM.zip
+*.dSYM

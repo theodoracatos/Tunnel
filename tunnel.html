@@ -261,16 +261,19 @@ function checkCoinCollection() {
                 burstCoin(sx, coin.y, 195);
                 notifs.push({ x: sx, y: coin.y - 14, life: 1.1, text: '+SLOW',   color: [60,210,255] });
                 sfxSlow();
+                window.webkit?.messageHandlers?.haptic?.postMessage('light');
             } else if (coin.type === 'red') {
                 shieldCount = Math.min(shieldCount + 1, 3);
                 burstCoin(sx, coin.y, 0);
                 notifs.push({ x: sx, y: coin.y - 14, life: 1.1, text: '+SHIELD', color: [255,90,90] });
                 sfxShield();
+                window.webkit?.messageHandlers?.haptic?.postMessage('success');
             } else {
                 gapBonus = Math.min(GAP_BONUS_MAX, gapBonus + GAP_PER_COIN);
                 burstCoin(sx, coin.y, 44);
                 notifs.push({ x: sx, y: coin.y - 14, life: 1.1, text: '+WIDE',   color: [255,220,55] });
                 sfxCoin();
+                window.webkit?.messageHandlers?.haptic?.postMessage('light');
             }
         }
     }
@@ -719,6 +722,7 @@ function die() {
         py = (b.top + b.bot) / 2;
         vy = 0;
         sfxShieldBreak();
+        window.webkit?.messageHandlers?.haptic?.postMessage('medium');
         return false;
     }
     thrustOff();
@@ -733,6 +737,7 @@ function die() {
     if (deathMarkers.length > MAX_DEATH_MARKERS) deathMarkers.shift();
     burst(PX, py);
     sfxDie();
+    window.webkit?.messageHandlers?.haptic?.postMessage('heavy');
     _fadeBgMusic();
     return true;
 }
