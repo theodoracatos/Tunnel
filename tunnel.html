@@ -16,6 +16,7 @@ canvas { display:block; }
 </head>
 <body>
 <canvas id="c"></canvas>
+<audio id="bgm" src="the_mountain.mp3" loop preload="auto" style="display:none"></audio>
 <script>
 // =====================================================================
 // TUNNEL – Hold-to-Thrust Cave Flyer
@@ -47,6 +48,23 @@ const GAP_BONUS_MAX   = H  * 0.06;    // cap: max ~36px halfGap bonus (72px full
 const GAP_DECAY       = H  * 0.012;   // bonus lost per second (~2s per coin)
 
 function lerp(a, b, t) { return a + (b - a) * Math.min(Math.max(t, 0), 1); }
+function lerpClr(a, b, t) {
+    return [Math.round(lerp(a[0],b[0],t)), Math.round(lerp(a[1],b[1],t)), Math.round(lerp(a[2],b[2],t))];
+}
+function rgb(c, a) {
+    return a === undefined ? `rgb(${c[0]},${c[1]},${c[2]})` : `rgba(${c[0]},${c[1]},${c[2]},${a})`;
+}
+
+// ── Seeded PRNG (mulberry32) ──────────────────────────────────────────
+// Fixed seed so every game run is identical.
+let _seed = 0;
+function seedRng(s) { _seed = s >>> 0; }
+function rng() {
+    _seed = (_seed + 0x6D2B79F5) >>> 0;
+    let t = Math.imul(_seed ^ (_seed >>> 15), 1 | _seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+}
 
 // ── Procedural tunnel ───────────────────────────────────────────────
 
@@ -64,7 +82,7 @@ function refreshWave() {
 function scrollSpd()   { return lerp(200,  560, _prog); }
 function stalSpacing() { return lerp(260,  100, _prog); }
 function stalLenFrac() { return lerp(0.36, 0.60, _prog); }
-function coinSpacing() { return lerp(360,  175, _prog); }
+function coinSpacing() { return lerp(600,  320, _prog); }
 
 function centerAt(wx) {
     const raw = H / 2
@@ -90,13 +108,16 @@ function boundsBase(wx) {
 
 // ── State ─────────────────────────────────────────────────────────────
 
-let phase, py, vy, holding, scrollX, score, best = 0, newBest;
+let phase, py, vy, holding, scrollX, score, newBest;
+let best = parseInt(localStorage.getItem('tunnel_best') || '0');
 let parts, deadT, flashA, shake, trailY;
 let stalactites, nextStalWx;
 let coins, nextCoinWx;
-let gapBonus;    // extra halfGap currently active from collected coins
-let notifs;      // floating "+WIDE" text after coin collect
-let gtime = 0;   // global time for animations (coin pulse, etc.)
+let gapBonus;
+let slowTime, shieldCount, shieldFlash;
+let notifs;
+let gtime = 0;
+let currentPath = [], lastRunPath = [], bestRunPath = [], nextPathSample = 0;
 
 function titleScreen() {
     phase = 'title'; py = H / 2; vy = 0; holding = false; scrollX = 0;
@@ -104,7 +125,8 @@ function titleScreen() {
     parts = []; deadT = 0; flashA = 0; shake = 0; trailY = [];
     stalactites = []; nextStalWx = 99999;
     coins = [];     nextCoinWx = 99999;
-    gapBonus = 0;   notifs = [];
+    gapBonus = 0; slowTime = 0; shieldCount = 0; shieldFlash = 0; notifs = [];
+    currentPath = []; nextPathSample = 0;
     refreshWave();
 }
 
@@ -114,28 +136,34 @@ function startPlay() {
     score = 0; newBest = false;
     parts = []; deadT = 0; flashA = 0; shake = 0; trailY = [];
     stalactites = []; nextStalWx = 420;
-    coins = [];     nextCoinWx = 500;   // first coin at 500 world px
-    gapBonus = 0;   notifs = [];
+    coins = [];     nextCoinWx = 500;
+    gapBonus = 0; slowTime = 0; shieldCount = 0; shieldFlash = 0; notifs = [];
+    currentPath = []; nextPathSample = 0;
+    seedRng(42);
     refreshWave();
+    // Force an early red coin so the player meets the shield mechanic quickly
+    const rb = boundsBase(750);
+    coins.push({ wx: 750, y: (rb.top + rb.bot) / 2, collected: false, type: 'red', fade: 1.0 });
+    _startBgMusic();
 }
 
 // ── Stalactite system ─────────────────────────────────────────────────
 
 function makeStal(wx, isTop) {
-    const rawLen = _halfGap * stalLenFrac() * (0.70 + Math.random() * 0.60);
+    const rawLen = _halfGap * stalLenFrac() * (0.70 + rng() * 0.60);
     const length = Math.min(rawLen, _halfGap * 0.60);
     const width  = W * lerp(0.048, 0.030, _prog);
     return { wx, isTop, length, width };
 }
 
 function maintainStalactites() {
-    while (nextStalWx < scrollX + W + 450) {
-        const spacing = stalSpacing() * (0.65 + Math.random() * 0.70);
-        if (_prog > 0.40 && Math.random() < 0.24) {
+    while (nextStalWx < scrollX + W + 600) {
+        const spacing = stalSpacing() * (0.65 + rng() * 0.70);
+        if (_prog > 0.40 && rng() < 0.24) {
             stalactites.push(makeStal(nextStalWx,       true));
             stalactites.push(makeStal(nextStalWx + 65, false));
         } else {
-            stalactites.push(makeStal(nextStalWx, Math.random() < 0.5));
+            stalactites.push(makeStal(nextStalWx, rng() < 0.5));
         }
         nextStalWx += spacing;
     }
@@ -146,22 +174,49 @@ function maintainStalactites() {
 
 // ── Coin system ───────────────────────────────────────────────────────
 
+function coinBlockedByStal(wx, y) {
+    const safe = PR + COIN_R;   // clearance the player actually needs
+    const r2   = safe * safe;
+    for (const s of stalactites) {
+        if (Math.abs(wx - s.wx) > s.width + safe * 2) continue;
+        const b = boundsBase(s.wx), hw = s.width / 2;
+        const tipY = s.isTop ? b.top + s.length : b.bot - s.length;
+        let ax, ay, bx, by;
+        if (s.isTop) {
+            ax = s.wx-hw; ay = b.top; bx = s.wx+hw; by = b.top;
+            if (inTri(wx,y,ax,ay,bx,by,s.wx,tipY)) return true;
+            if (ptSeg2(wx,y,ax,ay,s.wx,tipY) < r2)  return true;
+            if (ptSeg2(wx,y,bx,by,s.wx,tipY) < r2)  return true;
+            if (y < tipY + safe) return true;   // too close to tip vertically
+        } else {
+            ax = s.wx-hw; ay = b.bot; bx = s.wx+hw; by = b.bot;
+            if (inTri(wx,y,ax,ay,bx,by,s.wx,tipY)) return true;
+            if (ptSeg2(wx,y,ax,ay,s.wx,tipY) < r2)  return true;
+            if (ptSeg2(wx,y,bx,by,s.wx,tipY) < r2)  return true;
+            if (y > tipY - safe) return true;   // too close to tip vertically
+        }
+    }
+    return false;
+}
+
 function makeCoin(wx) {
-    // Position within the BASE corridor (ignores current bonus) so the
-    // coin is always physically reachable, even when no bonus is active.
     const b = boundsBase(wx);
-    const margin = (b.bot - b.top) * 0.40;
+    const margin = (b.bot - b.top) * 0.32;
     const cy     = (b.top + b.bot) / 2;
-    const coinY  = cy + (Math.random() - 0.5) * 2 * margin;
-    return { wx, y: coinY, collected: false };
+    const coinY  = cy + (rng() - 0.5) * 2 * margin;
+    const r = rng();
+    const type = r < 0.65 ? 'gold' : r < 0.825 ? 'blue' : 'red';
+    if (coinBlockedByStal(wx, coinY)) return null;
+    return { wx, y: coinY, collected: false, type, fade: 1.0 };
 }
 
 function maintainCoins() {
     while (nextCoinWx < scrollX + W + 500) {
-        coins.push(makeCoin(nextCoinWx));
-        nextCoinWx += coinSpacing() * (0.65 + Math.random() * 0.70);
+        const coin = makeCoin(nextCoinWx);
+        if (coin) coins.push(coin);
+        nextCoinWx += coinSpacing() * (0.65 + rng() * 0.70);
     }
-    while (coins.length && coins[0].wx < scrollX - 150) {
+    while (coins.length && (coins[0].wx < scrollX - 200 || (!coins[0].collected && coins[0].fade <= 0))) {
         coins.shift();
     }
 }
@@ -175,11 +230,23 @@ function checkCoinCollection() {
         const dx = PX - sx, dy = py - coin.y;
         if (dx*dx + dy*dy < r2) {
             coin.collected = true;
-            gapBonus = Math.min(GAP_BONUS_MAX, gapBonus + GAP_PER_COIN);
             score += 3;
-            burstCoin(sx, coin.y);
-            notifs.push({ x: sx, y: coin.y - 14, life: 1.1 });
-            sfxCoin();
+            if (coin.type === 'blue') {
+                slowTime = Math.min(slowTime + 4.0, 8.0);
+                burstCoin(sx, coin.y, 195);
+                notifs.push({ x: sx, y: coin.y - 14, life: 1.1, text: '+SLOW',   color: [60,210,255] });
+                sfxSlow();
+            } else if (coin.type === 'red') {
+                shieldCount = Math.min(shieldCount + 1, 3);
+                burstCoin(sx, coin.y, 0);
+                notifs.push({ x: sx, y: coin.y - 14, life: 1.1, text: '+SHIELD', color: [255,90,90] });
+                sfxShield();
+            } else {
+                gapBonus = Math.min(GAP_BONUS_MAX, gapBonus + GAP_PER_COIN);
+                burstCoin(sx, coin.y, 44);
+                notifs.push({ x: sx, y: coin.y - 14, life: 1.1, text: '+WIDE',   color: [255,220,55] });
+                sfxCoin();
+            }
         }
     }
 }
@@ -228,18 +295,40 @@ function burst(x, y) {
 }
 
 // Coin sparkle: tight ring of gold particles
-function burstCoin(x, y) {
+function burstCoin(x, y, baseHue = 44) {
     for (let i = 0; i < 14; i++) {
         const a = (i / 14) * Math.PI * 2;
         const v = 70 + Math.random() * 110;
         parts.push({ x, y, vx: Math.cos(a)*v, vy: Math.sin(a)*v,
-                     life: 0.75, r: 1.2+Math.random()*2.5, h: 44+Math.random()*18 });
+                     life: 0.75, r: 1.2+Math.random()*2.5, h: baseHue+Math.random()*20 });
     }
 }
 
 // ── Audio ─────────────────────────────────────────────────────────────
 
 let _ac = null, _tNode = null, _tGain = null;
+
+function _startBgMusic() {
+    const el = document.getElementById('bgm');
+    el.volume = 0.32;
+    el.currentTime = 0;
+    el.play().catch(() => {});
+}
+
+function _fadeBgMusic() {
+    const el = document.getElementById('bgm');
+    if (!el || el.paused) return;
+    const step = el.volume / 18;
+    const id = setInterval(() => {
+        if (el.volume > step) {
+            el.volume = Math.max(0, el.volume - step);
+        } else {
+            el.volume = 0;
+            el.pause();
+            clearInterval(id);
+        }
+    }, 40);  // ~18 * 40ms = 700ms fade
+}
 
 function _initAC() {
     if (_ac) { if (_ac.state === 'suspended') _ac.resume(); return; }
@@ -284,6 +373,50 @@ function sfxDie() {
     src.start(t); src.stop(t + 0.62);
 }
 
+function sfxSlow() {
+    if (!_ac) return;
+    const t = _ac.currentTime;
+    [480, 360, 270].forEach((freq, i) => {
+        const o = _ac.createOscillator(), g = _ac.createGain();
+        o.connect(g); g.connect(_ac.destination);
+        o.type = 'sine';
+        const t0 = t + i * 0.09;
+        o.frequency.setValueAtTime(freq, t0);
+        o.frequency.exponentialRampToValueAtTime(freq * 0.70, t0 + 0.30);
+        g.gain.setValueAtTime(0.11, t0);
+        g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.35);
+        o.start(t0); o.stop(t0 + 0.36);
+    });
+}
+
+function sfxShield() {
+    if (!_ac) return;
+    const t = _ac.currentTime;
+    [500, 750, 1000, 1300].forEach((freq, i) => {
+        const o = _ac.createOscillator(), g = _ac.createGain();
+        o.connect(g); g.connect(_ac.destination);
+        o.type = 'triangle'; o.frequency.value = freq;
+        const t0 = t + i * 0.07;
+        g.gain.setValueAtTime(0.12, t0);
+        g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.18);
+        o.start(t0); o.stop(t0 + 0.19);
+    });
+}
+
+function sfxShieldBreak() {
+    if (!_ac) return;
+    const t   = _ac.currentTime;
+    const src = _ac.createBufferSource();
+    src.buffer = _noiseBuf(0.3);
+    const flt = _ac.createBiquadFilter();
+    flt.type = 'bandpass'; flt.frequency.value = 700; flt.Q.value = 1.8;
+    const g = _ac.createGain();
+    g.gain.setValueAtTime(0.40, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.28);
+    src.connect(flt); flt.connect(g); g.connect(_ac.destination);
+    src.start(t); src.stop(t + 0.30);
+}
+
 function thrustOn() {
     if (!_ac || _tNode) return;
     const src = _ac.createBufferSource();
@@ -312,6 +445,7 @@ function thrustOff() {
 function onDown() {
     _initAC();
     if (phase === 'title') { startPlay(); return; }
+    if (phase === 'dead' && deadT > 0.9) { startPlay(); return; }
     holding = true;
     if (phase === 'play') thrustOn();
 }
@@ -353,7 +487,6 @@ function update(dt) {
         deadT  += dt;
         flashA  = Math.max(0, flashA - dt * 2.5);
         shake   = Math.max(0, shake  - dt * 30);
-        if (deadT > 1.0) startPlay();
         return;
     }
 
@@ -369,13 +502,21 @@ function update(dt) {
     vy  = Math.max(-MAX_VY, Math.min(MAX_VY, vy));
     py += vy * dt;
 
-    // Gap bonus decay
+    // Gap bonus / slow decay
     gapBonus = Math.max(0, gapBonus - GAP_DECAY * dt);
+    slowTime = Math.max(0, slowTime - dt);
 
     // Scroll + score
-    scrollX += scrollSpd() * dt;
+    const spd = scrollSpd() * (slowTime > 0 ? 0.60 : 1.0);
+    scrollX += spd * dt;
     refreshWave();
     score = Math.floor(scrollX / 60);
+
+    // Record path for ghost replay (sample every 30 world-px)
+    if (scrollX >= nextPathSample) {
+        currentPath.push(py);
+        nextPathSample += 30;
+    }
 
     // Trail
     trailY.push(py);
@@ -385,31 +526,102 @@ function update(dt) {
     maintainStalactites();
     maintainCoins();
 
+    // Fade coins that are blocked by a stalactite or have scrolled off the left edge
+    for (const coin of coins) {
+        if (coin.collected || coin.fade <= 0) continue;
+        const csx = coin.wx - scrollX;
+        if (csx < 0) {
+            coin.fade = Math.max(0, coin.fade - dt * 8);
+        } else if (csx < W + 60 && coinBlockedByStal(coin.wx, coin.y)) {
+            coin.fade = Math.max(0, coin.fade - dt * 5);
+        }
+    }
+
     // Wall collision
     for (const dx of [-PR * 0.7, 0, PR * 0.7]) {
         const b = boundsAt(scrollX + PX + dx);
-        if (py - PR < b.top || py + PR > b.bot) { die(); return; }
+        if (py - PR < b.top || py + PR > b.bot) { if (die()) return; break; }
     }
-    if (py - PR < 0 || py + PR > H) { die(); return; }
+    if (py - PR < 0 || py + PR > H) { if (die()) return; }
 
     // Stalactite collision
     for (const s of stalactites) {
-        if (stalHit(s)) { die(); return; }
+        if (stalHit(s)) { if (die()) return; break; }
     }
 
     // Coin collection
     checkCoinCollection();
 
-    flashA = Math.max(0, flashA - dt * 5);
+    shake       = Math.max(0, shake       - dt * 30);
+    shieldFlash = Math.max(0, shieldFlash - dt * 5);
+    flashA      = Math.max(0, flashA      - dt * 5);
 }
 
 function die() {
+    if (shieldCount > 0) {
+        shieldCount--;
+        shieldFlash = 1.0; shake = 8;
+        // Push to corridor center so the next frame passes collision
+        const b = boundsAt(scrollX + PX);
+        py = (b.top + b.bot) / 2;
+        vy = 0;
+        sfxShieldBreak();
+        return false;
+    }
     thrustOff();
     phase = 'dead'; deadT = 0; flashA = 1.0; shake = 14; holding = false;
     newBest = score > best;
-    if (newBest) best = score;
+    if (newBest) { best = score; localStorage.setItem('tunnel_best', best); bestRunPath = currentPath.slice(); }
+    lastRunPath = currentPath.slice();
     burst(PX, py);
     sfxDie();
+    _fadeBgMusic();
+    return true;
+}
+
+// ── Theme ─────────────────────────────────────────────────────────────
+// Three colour zones interpolated smoothly via _prog (0→1):
+// blue/purple (0) → lava/orange (0.5) → neon green (1)
+
+function getTheme() {
+    const t = _prog;
+    const u = t < 0.5 ? t * 2 : (t - 0.5) * 2;
+    if (t < 0.5) {
+        return {
+            bg:       lerpClr([4,4,10],     [10,5,2],     u),
+            wall:     lerpClr([23,16,42],   [30,12,6],    u),
+            stal:     lerpClr([29,19,53],   [40,15,8],    u),
+            stalEdge: lerpClr([185,95,255], [255,120,30], u),
+            stalTip:  lerpClr([215,150,255],[255,180,60], u),
+            wallBase: lerpClr([155,75,255], [255,100,30], u),
+        };
+    } else {
+        return {
+            bg:       lerpClr([10,5,2],     [2,10,6],     u),
+            wall:     lerpClr([30,12,6],    [6,22,14],    u),
+            stal:     lerpClr([40,15,8],    [8,30,18],    u),
+            stalEdge: lerpClr([255,120,30], [30,255,120], u),
+            stalTip:  lerpClr([255,180,60], [80,255,160], u),
+            wallBase: lerpClr([255,100,30], [30,255,120], u),
+        };
+    }
+}
+
+function drawCoinIcon(cx, cy, type, r) {
+    const isBlu = type === 'blue', isRed = type === 'red';
+    const bodyClr = isBlu ? '#4dd9ff' : isRed ? '#ff5555' : '#ffd93d';
+    const [gr, gg, gb] = isBlu ? [60,200,255] : isRed ? [255,70,70] : [255,210,40];
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI*2);
+    ctx.fillStyle   = bodyClr;
+    ctx.shadowColor = `rgba(${gr},${gg},${gb},0.90)`;
+    ctx.shadowBlur  = 10;
+    ctx.fill();
+    ctx.shadowBlur  = 0;
+    ctx.beginPath();
+    ctx.arc(cx - r*0.28, cy - r*0.28, r*0.38, 0, Math.PI*2);
+    ctx.fillStyle = 'rgba(255,255,220,0.55)';
+    ctx.fill();
 }
 
 // ── Draw ──────────────────────────────────────────────────────────────
@@ -420,7 +632,9 @@ function draw() {
     ctx.save();
     ctx.translate(ox, oy);
 
-    ctx.fillStyle = '#04040a';
+    const theme = getTheme();
+    document.body.style.background = rgb(theme.bg);
+    ctx.fillStyle = rgb(theme.bg);
     ctx.fillRect(-20, -20, W+40, H+40);
 
     // Wall arrays
@@ -437,7 +651,7 @@ function draw() {
     for (let i = 0; i < n; i++) ctx.lineTo(xs[i], topArr[i]);
     ctx.lineTo(xs[n-1], -2);
     ctx.closePath();
-    ctx.fillStyle = '#17102a';
+    ctx.fillStyle = rgb(theme.wall);
     ctx.fill();
 
     // Bottom wall
@@ -446,7 +660,7 @@ function draw() {
     for (let i = 0; i < n; i++) ctx.lineTo(xs[i], botArr[i]);
     ctx.lineTo(xs[n-1], H+2);
     ctx.closePath();
-    ctx.fillStyle = '#17102a';
+    ctx.fillStyle = rgb(theme.wall);
     ctx.fill();
 
     // Stalactites
@@ -463,27 +677,28 @@ function draw() {
             ctx.moveTo(sx-hw, b.bot); ctx.lineTo(sx+hw, b.bot); ctx.lineTo(sx, tipY);
         }
         ctx.closePath();
-        ctx.fillStyle = '#1d1335';
+        ctx.fillStyle = rgb(theme.stal);
         ctx.fill();
-        ctx.strokeStyle = 'rgba(185, 95, 255, 0.72)';
+        ctx.strokeStyle = rgb(theme.stalEdge, 0.72);
         ctx.lineWidth = 1.5;
         ctx.stroke();
 
         // Glowing tip
         ctx.beginPath();
         ctx.arc(sx, tipY, 2.8, 0, Math.PI*2);
-        ctx.fillStyle   = 'rgba(215, 150, 255, 0.90)';
-        ctx.shadowColor = 'rgba(210, 110, 255, 0.95)';
+        ctx.fillStyle   = rgb(theme.stalTip, 0.90);
+        ctx.shadowColor = rgb(theme.stalEdge, 0.95);
         ctx.shadowBlur  = 12;
         ctx.fill();
         ctx.shadowBlur  = 0;
     }
 
-    // Wall edge glow – shifts from purple → cyan when bonus is active
-    const bonusT = Math.min(gapBonus / GAP_BONUS_MAX, 1);
-    const edgeR  = Math.round(lerp(155,  40, bonusT));
-    const edgeG  = Math.round(lerp( 75, 210, bonusT));
-    const edgeB  = 255;
+    // Wall edge glow – shifts from theme base → cyan when bonus is active
+    const bonusT  = Math.min(gapBonus / GAP_BONUS_MAX, 1);
+    const wb      = theme.wallBase;
+    const edgeR   = Math.round(lerp(wb[0],  40, bonusT));
+    const edgeG   = Math.round(lerp(wb[1], 210, bonusT));
+    const edgeB   = Math.round(lerp(wb[2], 255, bonusT));
     const edgeClr = `rgba(${edgeR},${edgeG},${edgeB},0.55)`;
 
     ctx.beginPath();
@@ -502,16 +717,24 @@ function draw() {
 
     // Coins
     for (const coin of coins) {
-        if (coin.collected) continue;
+        if (coin.collected || coin.fade <= 0) continue;
         const sx = coin.wx - scrollX;
         if (sx < -50 || sx > W+50) continue;
+
+        ctx.globalAlpha = coin.fade;
+
+        // Per-type colours
+        const isBlu = coin.type === 'blue', isRed = coin.type === 'red';
+        const bodyClr  = isBlu ? '#4dd9ff' : isRed ? '#ff5555' : '#ffd93d';
+        const glowRGBA = isBlu ? [60,200,255] : isRed ? [255,70,70] : [255,210,40];
+        const [gr, gg, gb] = glowRGBA;
 
         // Pulsing glow ring
         const pulse = 1 + 0.18 * Math.sin(gtime * 5.5 + coin.wx * 0.013);
         const glowR = COIN_R * pulse * 2.2;
         const grd = ctx.createRadialGradient(sx, coin.y, 0, sx, coin.y, glowR);
-        grd.addColorStop(0,   'rgba(255,220,60,0.30)');
-        grd.addColorStop(0.5, 'rgba(255,190,30,0.10)');
+        grd.addColorStop(0,   `rgba(${gr},${gg},${gb},0.30)`);
+        grd.addColorStop(0.5, `rgba(${gr},${gg},${gb},0.10)`);
         grd.addColorStop(1,   'transparent');
         ctx.beginPath();
         ctx.arc(sx, coin.y, glowR, 0, Math.PI*2);
@@ -521,8 +744,8 @@ function draw() {
         // Coin body
         ctx.beginPath();
         ctx.arc(sx, coin.y, COIN_R * pulse, 0, Math.PI*2);
-        ctx.fillStyle   = '#ffd93d';
-        ctx.shadowColor = 'rgba(255,210,40,0.95)';
+        ctx.fillStyle   = bodyClr;
+        ctx.shadowColor = `rgba(${gr},${gg},${gb},0.95)`;
         ctx.shadowBlur  = 14;
         ctx.fill();
         ctx.shadowBlur  = 0;
@@ -532,6 +755,8 @@ function draw() {
         ctx.arc(sx - COIN_R*0.28, coin.y - COIN_R*0.28, COIN_R*0.38, 0, Math.PI*2);
         ctx.fillStyle = 'rgba(255,255,200,0.65)';
         ctx.fill();
+
+        ctx.globalAlpha = 1;
     }
 
     // Proximity danger flash
@@ -546,13 +771,6 @@ function draw() {
         }
     }
 
-    // Thrust glow
-    if (holding && phase === 'play') {
-        ctx.beginPath();
-        ctx.arc(PX, py+PR*1.9, PR*0.75, 0, Math.PI*2);
-        ctx.fillStyle = 'rgba(80,165,255,0.28)';
-        ctx.fill();
-    }
 
     // Player trail
     for (let i = 0; i < trailY.length; i++) {
@@ -561,6 +779,41 @@ function draw() {
         ctx.arc(PX-off, trailY[i], PR*frac*0.65, 0, Math.PI*2);
         ctx.fillStyle = `rgba(70,200,255,${frac*0.26})`;
         ctx.fill();
+    }
+
+    // Ghost players (best run = gold, last run = dim cyan)
+    if (phase === 'play') {
+        const si = Math.floor(scrollX / 30);
+        if (bestRunPath.length > si) {
+            ctx.beginPath();
+            ctx.arc(PX, bestRunPath[si], PR * 0.88, 0, Math.PI*2);
+            ctx.fillStyle   = 'rgba(255,200,50,0.32)';
+            ctx.shadowColor = 'rgba(255,180,20,0.55)';
+            ctx.shadowBlur  = 8;
+            ctx.fill();
+            ctx.shadowBlur  = 0;
+        }
+        if (lastRunPath.length > si) {
+            ctx.beginPath();
+            ctx.arc(PX, lastRunPath[si], PR * 0.88, 0, Math.PI*2);
+            ctx.fillStyle = 'rgba(160,210,255,0.22)';
+            ctx.fill();
+        }
+    }
+
+    // Shield rings (one per charge)
+    if (shieldCount > 0 && phase === 'play') {
+        const sp = 1 + 0.22 * Math.sin(gtime * 8);
+        for (let i = 0; i < shieldCount; i++) {
+            ctx.beginPath();
+            ctx.arc(PX, py, PR * (2.0 + 0.28 * sp + i * 0.7), 0, Math.PI*2);
+            ctx.strokeStyle = `rgba(255,80,80,${Math.max(0.75 - i * 0.18, 0.35) + 0.20 * sp})`;
+            ctx.lineWidth   = 2.5;
+            ctx.shadowColor = 'rgba(255,50,50,0.85)';
+            ctx.shadowBlur  = 12;
+            ctx.stroke();
+            ctx.shadowBlur  = 0;
+        }
     }
 
     // Player
@@ -582,15 +835,23 @@ function draw() {
         ctx.fill();
     }
 
-    // Floating "+WIDE" notifications
+    // Floating notifications
     ctx.textAlign = 'center';
     for (const n of notifs) {
-        ctx.font      = `bold ${W*0.038}px 'Courier New',monospace`;
-        ctx.fillStyle = `rgba(255,220,55,${Math.max(n.life,0)})`;
-        ctx.shadowColor = `rgba(255,200,30,${Math.max(n.life,0)*0.8})`;
+        const [nr, ng, nb] = n.color || [255,220,55];
+        const a = Math.max(n.life, 0);
+        ctx.font        = `bold ${W*0.038}px 'Courier New',monospace`;
+        ctx.fillStyle   = `rgba(${nr},${ng},${nb},${a})`;
+        ctx.shadowColor = `rgba(${nr},${ng},${nb},${a*0.8})`;
         ctx.shadowBlur  = 8;
-        ctx.fillText('+WIDE', n.x, n.y);
+        ctx.fillText(n.text || '+WIDE', n.x, n.y);
         ctx.shadowBlur  = 0;
+    }
+
+    // Shield break flash (white)
+    if (shieldFlash > 0) {
+        ctx.fillStyle = `rgba(255,255,255,${shieldFlash * 0.50})`;
+        ctx.fillRect(-20,-20,W+40,H+40);
     }
 
     // Death flash
@@ -605,7 +866,7 @@ function draw() {
     ctx.textAlign    = 'center';
     ctx.textBaseline = 'top';
 
-    if (phase !== 'title') {
+    if (phase === 'play') {
         ctx.font      = `bold ${W*0.085}px 'Courier New',monospace`;
         ctx.fillStyle = 'rgba(215,235,255,0.88)';
         ctx.fillText(score, W/2, H*0.03);
@@ -617,17 +878,27 @@ function draw() {
         ctx.fillText(`BEST  ${best}`, W/2, H*0.145);
     }
 
-    // Gap bonus bar: thin strip at bottom, fills left-to-right with gold
+    // Gap bonus bar (bottom, gold)
     if (phase === 'play' && gapBonus > 0) {
         const ratio = gapBonus / GAP_BONUS_MAX;
         const barW  = W * 0.55 * ratio;
         const barY  = H * 0.955;
         const barH  = 4;
-        // Track
         ctx.fillStyle = 'rgba(255,200,40,0.15)';
         ctx.fillRect(W*0.225, barY, W*0.55, barH);
-        // Fill
         ctx.fillStyle = `rgba(255,210,50,${0.55 + ratio*0.35})`;
+        ctx.fillRect(W*0.225, barY, barW, barH);
+    }
+
+    // Slow-time bar (bottom, cyan, just above gap bar)
+    if (phase === 'play' && slowTime > 0) {
+        const ratio = Math.min(slowTime / 4.0, 1.0);
+        const barW  = W * 0.55 * ratio;
+        const barY  = H * 0.940;
+        const barH  = 4;
+        ctx.fillStyle = 'rgba(60,200,255,0.15)';
+        ctx.fillRect(W*0.225, barY, W*0.55, barH);
+        ctx.fillStyle = `rgba(60,200,255,${0.55 + ratio*0.35})`;
         ctx.fillRect(W*0.225, barY, barW, barH);
     }
 
@@ -642,35 +913,62 @@ function draw() {
         ctx.fillText('HOLD = thrust up', W/2, H/2-H*0.005);
         ctx.fillText('RELEASE = gravity', W/2, H/2+H*0.055);
 
-        ctx.fillStyle = 'rgba(255,210,55,0.60)';
-        ctx.fillText('coins → corridor widens', W/2, H/2+H*0.115);
+        // Coin legend
+        const iconR  = W * 0.028;
+        const iconY  = H/2 + H*0.115;
+        const iconGap = W * 0.19;
+        [
+            { type: 'gold', x: W/2 - iconGap, label: '+WIDE',   color: [255,220,55] },
+            { type: 'blue', x: W/2,            label: '+SLOW',   color: [60,210,255] },
+            { type: 'red',  x: W/2 + iconGap,  label: '+SHIELD', color: [255,90,90]  },
+        ].forEach(c => {
+            drawCoinIcon(c.x, iconY, c.type, iconR);
+            ctx.font = `${W*0.024}px 'Courier New',monospace`;
+            const [cr,cg,cb] = c.color;
+            ctx.fillStyle = `rgba(${cr},${cg},${cb},0.72)`;
+            ctx.fillText(c.label, c.x, iconY + iconR + W*0.030);
+        });
 
         ctx.font      = `${W*0.028}px 'Courier New',monospace`;
         ctx.fillStyle = 'rgba(130,160,230,0.55)';
-        ctx.fillText('tap / click / space', W/2, H/2+H*0.175);
+        ctx.fillText('tap / click / space', W/2, H/2+H*0.215);
 
         if (best > 0) {
             ctx.font      = `${W*0.026}px 'Courier New',monospace`;
             ctx.fillStyle = 'rgba(95,125,195,0.48)';
-            ctx.fillText(`BEST  ${best}`, W/2, H/2+H*0.24);
+            ctx.fillText(`BEST  ${best}`, W/2, H/2+H*0.275);
         }
     }
 
     if (phase === 'dead') {
         ctx.textBaseline = 'middle';
         const a = Math.min(1, deadT * 5);
+
         ctx.font      = `bold ${W*0.082}px 'Courier New',monospace`;
         ctx.fillStyle = `rgba(255,65,65,${a})`;
-        ctx.fillText('DEAD', W/2, H/2-H*0.05);
+        ctx.fillText('DEAD', W/2, H/2 - H*0.10);
 
-        ctx.font      = `${W*0.030}px 'Courier New',monospace`;
-        ctx.fillStyle = `rgba(185,210,255,${a*0.80})`;
-        ctx.fillText(`score  ${score}`, W/2, H/2+H*0.04);
+        ctx.font      = `bold ${W*0.072}px 'Courier New',monospace`;
+        ctx.fillStyle = `rgba(215,235,255,${a})`;
+        ctx.fillText(score, W/2, H/2 + H*0.00);
 
         if (newBest && score > 0) {
             ctx.font      = `${W*0.026}px 'Courier New',monospace`;
             ctx.fillStyle = `rgba(255,220,70,${a*0.90})`;
-            ctx.fillText('new best!', W/2, H/2+H*0.10);
+            ctx.fillText('new best!', W/2, H/2 + H*0.08);
+        }
+
+        if (best > 0 && !newBest) {
+            ctx.font      = `${W*0.024}px 'Courier New',monospace`;
+            ctx.fillStyle = `rgba(120,145,210,${a*0.55})`;
+            ctx.fillText(`best  ${best}`, W/2, H/2 + H*0.08);
+        }
+
+        if (deadT > 0.9) {
+            const b = Math.min(1, (deadT - 0.9) * 4);
+            ctx.font      = `${W*0.026}px 'Courier New',monospace`;
+            ctx.fillStyle = `rgba(130,160,230,${b * 0.60})`;
+            ctx.fillText('tap to continue', W/2, H/2 + H*0.18);
         }
     }
 }
