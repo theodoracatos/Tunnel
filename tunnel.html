@@ -88,6 +88,14 @@ function mineSpacing() { return lerp(900,  340, _prog); }
 
 const MINE_R = W * 0.022;
 
+const SKINS = [
+    { color: '#d2f5ff', shadow: [90,230,255],  name: 'CYAN'              },
+    { color: '#ffe87a', shadow: [255,200,50],  name: 'GOLD',   req: 50   },
+    { color: '#ff7070', shadow: [255,60,60],   name: 'RED',    req: 100  },
+    { color: '#7aff8e', shadow: [50,255,80],   name: 'GREEN',  req: 200  },
+    { color: '#c87aff', shadow: [160,80,255],  name: 'PURPLE', req: 300  },
+];
+
 function centerAt(wx) {
     const raw = H / 2
         + _wA1 * Math.sin(wx * _wF1)
@@ -117,6 +125,11 @@ let best = parseInt(localStorage.getItem('tunnel_best') || '0');
 let musicOn = localStorage.getItem('tunnel_music') !== '0';
 let fxOn    = localStorage.getItem('tunnel_fx')    !== '0';
 let _btnMusicRect = null, _btnFxRect = null;
+let unlockedSkins = parseInt(localStorage.getItem('tunnel_skins') || '1');
+let activeSkin    = parseInt(localStorage.getItem('tunnel_skin')  || '0');
+if (!(unlockedSkins & (1 << activeSkin))) activeSkin = 0;
+let skinUnlockIdx = -1;
+let _skinBtnRects = [];
 let parts, deadT, flashA, shake, trailY;
 let stalactites, nextStalWx;
 let coins, nextCoinWx;
@@ -126,12 +139,15 @@ let slowTime, shieldCount, shieldFlash;
 let mines, nextMineWx;
 let notifs;
 let bonusScore, milestoneNext, nearMissTimer, coinCombo, coinComboTimer;
+let runCoins, runNearMisses, runMaxCombo;
 let prevRunScore, lastRunScore;
 let milestoneFlash, milestoneText;
+let followerActive, followerGap, followerFade, followerRespawnTimer, followerPulseTimer;
 let gtime = 0;
 let ambParts = [];
-let deathMarkers = [];   // persists across runs: { wx, wallY, side }
+let deathMarkers = [];   // persists across runs: { wx, wallY }
 const MAX_DEATH_MARKERS = 25;
+let bestMarker = null;   // { wx, wallY } of all-time best run's death spot
 
 function initAmbParts() {
     ambParts = Array.from({ length: 30 }, () => ({
@@ -154,6 +170,8 @@ function titleScreen() {
     gapBonus = 0; slowTime = 0; shieldCount = 0; shieldFlash = 0; notifs = [];
     mines = []; nextMineWx = 99999;
     prevRunScore = 0; lastRunScore = 0; milestoneFlash = 0; milestoneText = '';
+    runCoins = 0; runNearMisses = 0; runMaxCombo = 0; skinUnlockIdx = -1;
+    followerActive = false; followerGap = W * 2; followerFade = 0; followerRespawnTimer = 0;
     initAmbParts();
     refreshWave();
 }
@@ -169,8 +187,12 @@ function startPlay() {
     gapBonus = 0; slowTime = 0; shieldCount = 0; shieldFlash = 0; notifs = [];
     mines = []; nextMineWx = 1800;
     bonusScore = 0; milestoneNext = 25; nearMissTimer = 0; coinCombo = 0; coinComboTimer = 0;
+    runCoins = 0; runNearMisses = 0; runMaxCombo = 0; skinUnlockIdx = -1;
     milestoneFlash = 0; milestoneText = '';
-    seedRng(95);
+    followerActive = false; followerGap = W * 2; followerFade = 0;
+    followerRespawnTimer = 6.0; followerPulseTimer = 0;
+    const _d = new Date();
+    seedRng(_d.getUTCFullYear() * 10000 + (_d.getUTCMonth() + 1) * 100 + _d.getUTCDate());
     refreshWave();
     // Force an early red coin so the player meets the shield mechanic quickly
     const rb = boundsBase(750);
@@ -276,6 +298,8 @@ function checkCoinCollection() {
             coinComboTimer = 2.0;
             const pts = coinCombo * 3;
             bonusScore += pts;
+            runCoins++;
+            if (coinCombo > runMaxCombo) runMaxCombo = coinCombo;
             if (coin.type === 'blue') {
                 slowTime = Math.min(slowTime + 4.0, 8.0);
                 burstCoin(sx, coin.y, 195);
@@ -599,6 +623,31 @@ function sfxCombo(level) {
     o.start(t); o.stop(t + 0.20);
 }
 
+function sfxFollowerAppear() {
+    if (!_ac || !fxOn) return;
+    const t = _ac.currentTime;
+    [80, 68, 55].forEach((freq, i) => {
+        const o = _ac.createOscillator(), g = _ac.createGain();
+        o.connect(g); g.connect(_ac.destination);
+        o.type = 'sawtooth'; o.frequency.value = freq;
+        const t0 = t + i * 0.14;
+        g.gain.setValueAtTime(0.10, t0);
+        g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.50);
+        o.start(t0); o.stop(t0 + 0.52);
+    });
+}
+
+function sfxFollowerPulse() {
+    if (!_ac || !fxOn) return;
+    const t = _ac.currentTime;
+    const o = _ac.createOscillator(), g = _ac.createGain();
+    o.connect(g); g.connect(_ac.destination);
+    o.type = 'sine'; o.frequency.value = 62;
+    g.gain.setValueAtTime(0.13, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
+    o.start(t); o.stop(t + 0.24);
+}
+
 function thrustOn() {
     if (!_ac || _tNode || !fxOn) return;
     const src = _ac.createBufferSource();
@@ -639,6 +688,14 @@ function onDown(e) {
             fxOn = !fxOn;
             localStorage.setItem('tunnel_fx', fxOn ? '1' : '0');
             return;
+        }
+        for (let i = 0; i < _skinBtnRects.length; i++) {
+            const b = _skinBtnRects[i], dx = cx - b.cx, dy = cy - b.cy;
+            if (dx*dx + dy*dy < b.r*b.r && (unlockedSkins & (1 << i))) {
+                activeSkin = i;
+                localStorage.setItem('tunnel_skin', activeSkin);
+                return;
+            }
         }
     }
     _initAC();
@@ -747,6 +804,7 @@ function update(dt) {
         if (nmC >= 0 && nmC < PR * 2.0) {
             bonusScore++;
             nearMissTimer = 1.5;
+            runNearMisses++;
             notifs.push({ x: PX + W*0.07, y: py - H*0.05, life: 1.0, text: '+CLOSE', color: [255,160,60] });
             sfxNearMiss();
         }
@@ -802,6 +860,47 @@ function update(dt) {
     // Coin collection
     checkCoinCollection();
 
+    // Follower
+    if (_prog >= 0.50) {
+        if (!followerActive) {
+            followerRespawnTimer = Math.max(0, followerRespawnTimer - dt);
+            if (followerRespawnTimer <= 0) {
+                followerActive = true;
+                followerGap    = PX + W * 0.55;   // ~462px: ~330px off-screen left
+                followerFade   = 0;
+                followerPulseTimer = 0;
+                notifs.push({ x: W * 0.12, y: py - H * 0.08, life: 1.6,
+                              text: '!!', color: [255, 40, 10] });
+                sfxFollowerAppear();
+            }
+        } else {
+            followerFade = Math.min(1, followerFade + dt * 1.8);
+            // gap grows at 24% of scrollspd (player faster); shrinks at 16% when slow
+            const slowFactor = slowTime > 0 ? 0.60 : 1.0;
+            followerGap += scrollSpd() * (slowFactor - 0.76) * dt;
+
+            // Heartbeat when close enough to be on-screen
+            followerPulseTimer = Math.max(0, followerPulseTimer - dt);
+            if (followerPulseTimer <= 0 && followerGap < PX * 1.8) {
+                sfxFollowerPulse();
+                followerPulseTimer = 0.35 + (followerGap / (PX * 1.8)) * 0.45;
+            }
+
+            // Caught
+            if (followerGap <= 0) {
+                if (die()) return;
+                followerGap = PX * 0.85;  // shielded - push it back
+            }
+
+            // Outrun - follower gives up
+            if (followerGap > W * 2.0) {
+                followerActive = false;
+                followerFade   = 0;
+                followerRespawnTimer = 12;
+            }
+        }
+    }
+
     shake       = Math.max(0, shake       - dt * 30);
     shieldFlash = Math.max(0, shieldFlash - dt * 5);
     flashA      = Math.max(0, flashA      - dt * 5);
@@ -835,12 +934,21 @@ function die() {
     lastRunScore = score;
     newBest = score > best;
     if (newBest) { best = score; localStorage.setItem('tunnel_best', best); }
+    skinUnlockIdx = -1;
+    for (let i = 1; i < SKINS.length; i++) {
+        if (SKINS[i].req && !(unlockedSkins & (1 << i)) && score >= SKINS[i].req) {
+            unlockedSkins |= (1 << i);
+            skinUnlockIdx = i;
+        }
+    }
+    if (skinUnlockIdx >= 0) localStorage.setItem('tunnel_skins', unlockedSkins);
     // Record a death marker on the nearest wall
     const _dmWx = scrollX + PX;
     const _dmB  = boundsAt(_dmWx);
     const _dmWY = py < (_dmB.top + _dmB.bot) / 2 ? _dmB.top : _dmB.bot;
     deathMarkers.push({ wx: _dmWx, wallY: _dmWY });
     if (deathMarkers.length > MAX_DEATH_MARKERS) deathMarkers.shift();
+    if (newBest) bestMarker = { wx: _dmWx, wallY: _dmWY };
     burst(PX, py);
     sfxDie();
     window.webkit?.messageHandlers?.haptic?.postMessage('heavy');
@@ -1032,11 +1140,32 @@ function draw() {
         ctx.shadowBlur  = 6;
         ctx.stroke();
         ctx.shadowBlur  = 0;
-        // Small center dot
         ctx.beginPath();
         ctx.arc(sx, m.wallY, 1.8, 0, Math.PI * 2);
         ctx.fillStyle = 'rgba(255,80,80,0.50)';
         ctx.fill();
+    }
+
+    // Best-run marker – gold ring showing where the all-time best ended
+    if (bestMarker) {
+        const sx = bestMarker.wx - scrollX;
+        if (sx >= -80 && sx <= W + 80) {
+            const pulse = 0.7 + 0.3 * Math.sin(gtime * 3.5);
+            const mr    = PR * 1.9;
+            ctx.beginPath();
+            ctx.arc(sx, bestMarker.wallY, mr, 0, Math.PI * 2);
+            ctx.strokeStyle = `rgba(255,215,0,${0.75 * pulse})`;
+            ctx.lineWidth   = 2.2;
+            ctx.shadowColor = `rgba(255,190,0,${0.85 * pulse})`;
+            ctx.shadowBlur  = 10;
+            ctx.stroke();
+            ctx.shadowBlur  = 0;
+            // Star center
+            ctx.beginPath();
+            ctx.arc(sx, bestMarker.wallY, 2.4, 0, Math.PI * 2);
+            ctx.fillStyle = `rgba(255,230,80,${0.90 * pulse})`;
+            ctx.fill();
+        }
     }
 
     // Mines
@@ -1156,13 +1285,89 @@ function draw() {
 
 
 
+    // Follower
+    if (phase === 'play' && followerFade > 0) {
+        const fgap = Math.max(followerGap, 0);
+        const fsx  = PX - fgap;
+        const fWx  = scrollX + PX - fgap;
+
+        // Left-edge warning glow (follower off-screen)
+        if (fsx < 0) {
+            const nearness = Math.max(0, 1.0 - fgap / (W * 1.1));
+            if (nearness > 0) {
+                const pulse = 0.45 + 0.55 * Math.sin(gtime * 5.5 + 1);
+                ctx.fillStyle = `rgba(255,30,0,${nearness * pulse * 0.38 * followerFade})`;
+                ctx.fillRect(-5, 0, W * 0.030, H);
+            }
+        }
+
+        // Body (drawn when at least partially on-screen)
+        if (fsx > -PR * 5) {
+            const fr    = PR * 0.90;
+            const pulse = 0.84 + 0.16 * Math.sin(gtime * 9.2);
+            const fsy   = centerAt(fWx);
+
+            const fgrd = ctx.createRadialGradient(fsx, fsy, 0, fsx, fsy, fr * 4.2);
+            fgrd.addColorStop(0,   `rgba(255,50,10,${0.42 * followerFade})`);
+            fgrd.addColorStop(0.5, `rgba(220,30,5,${0.14 * followerFade})`);
+            fgrd.addColorStop(1,   'transparent');
+            ctx.beginPath();
+            ctx.arc(fsx, fsy, fr * 4.2, 0, Math.PI * 2);
+            ctx.fillStyle = fgrd;
+            ctx.fill();
+
+            ctx.beginPath();
+            ctx.arc(fsx, fsy, fr * pulse, 0, Math.PI * 2);
+            ctx.fillStyle   = `rgba(155,12,4,${followerFade})`;
+            ctx.shadowColor = `rgba(255,55,0,${0.92 * followerFade})`;
+            ctx.shadowBlur  = 18;
+            ctx.fill();
+            ctx.shadowBlur  = 0;
+
+            // Inner highlight
+            ctx.beginPath();
+            ctx.arc(fsx - fr * 0.28, fsy - fr * 0.28, fr * 0.36, 0, Math.PI * 2);
+            ctx.fillStyle = `rgba(255,130,70,${0.42 * followerFade})`;
+            ctx.fill();
+        }
+    }
+
+    // Speed lines – horizontal streaks when vertical velocity is high
+    if (phase === 'play') {
+        const speedFrac = Math.max(0, (Math.abs(vy) - 300) / (MAX_VY - 300));
+        if (speedFrac > 0.05) {
+            const sk = SKINS[activeSkin] || SKINS[0];
+            const [sr, sg, sb] = sk.shadow;
+            const maxLen = W * 0.20 * speedFrac;
+            for (let i = 0; i < 6; i++) {
+                const yOff     = (i - 2.5) * PR * 0.85;
+                const distFrac = Math.abs(yOff) / (PR * 2.5);
+                const len      = maxLen * (1 - distFrac * 0.45);
+                const alpha    = speedFrac * (0.40 - distFrac * 0.28);
+                if (alpha < 0.02 || len < 1) continue;
+                ctx.beginPath();
+                ctx.moveTo(PX - PR * 1.1, py + yOff);
+                ctx.lineTo(PX - PR * 1.1 - len, py + yOff);
+                ctx.strokeStyle = `rgba(${sr},${sg},${sb},${alpha})`;
+                ctx.lineWidth   = Math.max(0.5, 1.8 - distFrac * 1.1);
+                ctx.lineCap     = 'round';
+                ctx.stroke();
+            }
+            ctx.lineCap = 'butt';
+        }
+    }
+
     // Player trail
-    for (let i = 0; i < trailY.length; i++) {
-        const frac = i / trailY.length, off = (trailY.length-1-i)*5;
-        ctx.beginPath();
-        ctx.arc(PX-off, trailY[i], PR*frac*0.65, 0, Math.PI*2);
-        ctx.fillStyle = `rgba(70,200,255,${frac*0.26})`;
-        ctx.fill();
+    {
+        const sk = SKINS[activeSkin] || SKINS[0];
+        const [sr, sg, sb] = sk.shadow;
+        for (let i = 0; i < trailY.length; i++) {
+            const frac = i / trailY.length, off = (trailY.length-1-i)*5;
+            ctx.beginPath();
+            ctx.arc(PX-off, trailY[i], PR*frac*0.65, 0, Math.PI*2);
+            ctx.fillStyle = `rgba(${sr},${sg},${sb},${frac*0.26})`;
+            ctx.fill();
+        }
     }
 
     // Shield rings (one per charge)
@@ -1182,10 +1387,12 @@ function draw() {
 
     // Player
     if (phase !== 'dead' || deadT < 0.18) {
+        const sk = SKINS[activeSkin] || SKINS[0];
+        const [sr, sg, sb] = sk.shadow;
         ctx.beginPath();
         ctx.arc(PX, py, PR, 0, Math.PI*2);
-        ctx.fillStyle   = phase === 'dead' ? '#ff4040' : '#d2f5ff';
-        ctx.shadowColor = 'rgba(90,230,255,0.95)';
+        ctx.fillStyle   = phase === 'dead' ? '#ff4040' : sk.color;
+        ctx.shadowColor = `rgba(${sr},${sg},${sb},0.95)`;
         ctx.shadowBlur  = 20;
         ctx.fill();
         ctx.shadowBlur  = 0;
@@ -1208,7 +1415,7 @@ function draw() {
         ctx.fillStyle   = `rgba(${nr},${ng},${nb},${a})`;
         ctx.shadowColor = `rgba(${nr},${ng},${nb},${a*0.8})`;
         ctx.shadowBlur  = 8;
-        ctx.fillText(n.text || '+WIDE', n.x, n.y);
+        ctx.fillText(n.text, n.x, n.y);
         ctx.shadowBlur  = 0;
     }
 
@@ -1242,7 +1449,7 @@ function draw() {
 
     if (best > 0 && phase === 'play') {
         ctx.font      = `${W*0.025}px 'Courier New',monospace`;
-        ctx.fillStyle = 'rgba(120,145,210,0.42)';
+        ctx.fillStyle = 'rgba(120,145,210,0.60)';
         ctx.fillText(`BEST  ${best}`, W/2, H*0.145);
     }
 
@@ -1320,8 +1527,53 @@ function draw() {
 
         if (best > 0) {
             ctx.font      = `${W*0.026}px 'Courier New',monospace`;
-            ctx.fillStyle = 'rgba(95,125,195,0.48)';
+            ctx.fillStyle = 'rgba(95,125,195,0.62)';
             ctx.fillText(`BEST  ${best}`, W/2, H/2+H*0.280);
+        }
+
+        // Skin picker (shown once at least one extra skin is unlocked)
+        if (unlockedSkins > 1) {
+            const dotR   = W * 0.020;
+            const dotGap = W * 0.065;
+            const startX = W / 2 - (SKINS.length - 1) * dotGap / 2;
+            const dotY   = H / 2 + H * 0.345;
+            _skinBtnRects = [];
+            ctx.font      = `${W*0.017}px 'Courier New',monospace`;
+            ctx.fillStyle = 'rgba(90,110,155,0.45)';
+            ctx.fillText('SHIP', W/2, dotY - dotR * 2.3);
+            for (let i = 0; i < SKINS.length; i++) {
+                const cx       = startX + i * dotGap;
+                const unlocked = !!(unlockedSkins & (1 << i));
+                const selected = activeSkin === i;
+                _skinBtnRects.push({ cx, cy: dotY, r: dotR * 1.6 });
+                if (!unlocked) {
+                    ctx.beginPath();
+                    ctx.arc(cx, dotY, dotR, 0, Math.PI * 2);
+                    ctx.strokeStyle = 'rgba(65,65,90,0.35)';
+                    ctx.lineWidth   = 1;
+                    ctx.stroke();
+                    ctx.font      = `${W*0.013}px 'Courier New',monospace`;
+                    ctx.fillStyle = 'rgba(65,65,90,0.35)';
+                    ctx.fillText(SKINS[i].req, cx, dotY + dotR * 2.0);
+                    ctx.font = `${W*0.017}px 'Courier New',monospace`;
+                } else {
+                    const [sr, sg, sb] = SKINS[i].shadow;
+                    ctx.beginPath();
+                    ctx.arc(cx, dotY, dotR, 0, Math.PI * 2);
+                    ctx.fillStyle   = SKINS[i].color;
+                    ctx.shadowColor = `rgba(${sr},${sg},${sb},${selected ? 0.85 : 0.40})`;
+                    ctx.shadowBlur  = selected ? 14 : 5;
+                    ctx.fill();
+                    ctx.shadowBlur  = 0;
+                    if (selected) {
+                        ctx.beginPath();
+                        ctx.arc(cx, dotY, dotR * 1.65, 0, Math.PI * 2);
+                        ctx.strokeStyle = `rgba(${sr},${sg},${sb},0.65)`;
+                        ctx.lineWidth   = 1.5;
+                        ctx.stroke();
+                    }
+                }
+            }
         }
     }
 
@@ -1334,8 +1586,11 @@ function draw() {
         ctx.fillText('DEAD', W/2, H/2 - H*0.10);
 
         ctx.font      = `bold ${W*0.072}px 'Courier New',monospace`;
-        ctx.fillStyle = `rgba(215,235,255,${a})`;
+        ctx.fillStyle = newBest ? `rgba(255,225,65,${a})` : `rgba(215,235,255,${a})`;
+        ctx.shadowColor = newBest ? `rgba(255,190,0,${a*0.75})` : 'transparent';
+        ctx.shadowBlur  = newBest ? 20 : 0;
         ctx.fillText(score, W/2, H/2 + H*0.00);
+        ctx.shadowBlur  = 0;
 
         if (newBest && score > 0) {
             ctx.font      = `${W*0.026}px 'Courier New',monospace`;
@@ -1354,14 +1609,34 @@ function draw() {
             const sign = diff > 0 ? '+' : '';
             ctx.font      = `${W*0.022}px 'Courier New',monospace`;
             ctx.fillStyle = `rgba(${diff >= 0 ? '130,220,130' : '210,130,130'},${a*0.80})`;
-            ctx.fillText(`${sign}${diff} vs last`, W/2, H/2 + H*0.125);
+            ctx.fillText(`${sign}${diff} vs last`, W/2, H/2 + H*0.135);
+        }
+
+        {
+            const statParts = [`${runCoins} coin${runCoins !== 1 ? 's' : ''}`];
+            if (runNearMisses > 0) statParts.push(`${runNearMisses} close`);
+            if (runMaxCombo   > 1) statParts.push(`x${runMaxCombo} combo`);
+            ctx.font      = `${W*0.020}px 'Courier New',monospace`;
+            ctx.fillStyle = `rgba(120,140,175,${a * 0.65})`;
+            ctx.fillText(statParts.join('  '), W/2, H/2 + H*0.185);
+        }
+
+        if (skinUnlockIdx >= 0) {
+            const sk = SKINS[skinUnlockIdx];
+            const [sr, sg, sb] = sk.shadow;
+            ctx.font        = `bold ${W*0.024}px 'Courier New',monospace`;
+            ctx.fillStyle   = `rgba(${sr},${sg},${sb},${a*0.95})`;
+            ctx.shadowColor = `rgba(${sr},${sg},${sb},${a*0.60})`;
+            ctx.shadowBlur  = 14;
+            ctx.fillText(`${sk.name} SHIP UNLOCKED!`, W/2, H/2 + H*0.230);
+            ctx.shadowBlur  = 0;
         }
 
         if (deadT > 0.9) {
             const b = Math.min(1, (deadT - 0.9) * 4);
             ctx.font      = `${W*0.026}px 'Courier New',monospace`;
             ctx.fillStyle = `rgba(180,210,255,${b * 0.95})`;
-            ctx.fillText('tap to continue', W/2, H/2 + H*0.18);
+            ctx.fillText('tap to continue', W/2, H/2 + (skinUnlockIdx >= 0 ? H*0.290 : H*0.245));
         }
     }
 }
