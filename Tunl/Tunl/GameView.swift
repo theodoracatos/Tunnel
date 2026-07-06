@@ -31,17 +31,27 @@ struct GameView: UIViewRepresentable {
 
         // Disable long-press recognizers after layout to suppress the selection loupe
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            GameView.killLongPress(in: webView)
+            GameView.killPressInteractions(in: webView)
         }
 
         return webView
     }
 
-    private static func killLongPress(in view: UIView) {
+    static func killPressInteractions(in view: UIView) {
+        // Remove interactions that produce the pill bubble
+        view.interactions
+            .filter { $0 is UIContextMenuInteraction || $0 is UITextInteraction }
+            .forEach { view.removeInteraction($0) }
+        if #available(iOS 16.0, *) {
+            view.interactions
+                .filter { $0 is UIEditMenuInteraction }
+                .forEach { view.removeInteraction($0) }
+        }
+        // Also disable long-press gesture recognizers
         view.gestureRecognizers?
             .filter { $0 is UILongPressGestureRecognizer }
             .forEach { $0.isEnabled = false }
-        view.subviews.forEach { killLongPress(in: $0) }
+        view.subviews.forEach { killPressInteractions(in: $0) }
     }
 
     func updateUIView(_ webView: WKWebView, context: Context) {}
@@ -51,7 +61,7 @@ struct GameView: UIViewRepresentable {
     class Coordinator: NSObject, WKScriptMessageHandler, WKUIDelegate, WKNavigationDelegate {
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            GameView.killLongPress(in: webView)
+            GameView.killPressInteractions(in: webView)
         }
 
         func webView(_ webView: WKWebView,
