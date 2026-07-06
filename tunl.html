@@ -43,7 +43,7 @@ const MAX_VY  = 680;
 const RSTEP   = 3;
 
 // Coin constants
-const COIN_R          = W  * 0.017;   // visual radius
+const COIN_R          = W  * 0.009;   // visual radius
 const COIN_HIT_R      = W  * 0.032;   // collection radius (generous)
 const GAP_PER_COIN    = H  * 0.025;   // bonus halfGap added per coin
 const GAP_BONUS_MAX   = H  * 0.06;    // cap: max ~36px halfGap bonus (72px full gap)
@@ -91,11 +91,11 @@ function mineSpacing() { return lerp(900,  340, _prog); }
 const MINE_R = W * 0.022;
 
 const SKINS = [
-    { color: '#e8eeff', shadow: [210,220,255],  name: 'PEARL'                },
-    { color: '#ffaa00', shadow: [255,155,0],    name: 'AMBER',   req: 50    },
-    { color: '#ff1a33', shadow: [255,30,55],    name: 'CRIMSON', req: 100   },
-    { color: '#00ccff', shadow: [0,190,255],    name: 'ELECTRIC',req: 200   },
-    { color: '#99ff00', shadow: [140,255,0],    name: 'TOXIC',   req: 300   },
+    { color: '#e8eeff', shadow: [210,220,255],  name: 'PEARL'                                      },
+    { color: '#ffaa00', shadow: [255,155,0],    name: 'AMBER',   req: 50,  perk: 'COIN REACH +50%' },
+    { color: '#ff1a33', shadow: [255,30,55],    name: 'CRIMSON', req: 100, perk: 'WIDER CLOSE ZONE' },
+    { color: '#00ccff', shadow: [0,190,255],    name: 'ELECTRIC',req: 200, perk: 'SLOW DECAY -25%'  },
+    { color: '#99ff00', shadow: [140,255,0],    name: 'TOXIC',   req: 300, perk: 'COMBO WINDOW 3S'  },
 ];
 
 function centerAt(wx) {
@@ -326,7 +326,8 @@ function maintainCoins() {
 }
 
 function checkCoinCollection() {
-    const r2 = (PR + COIN_HIT_R) * (PR + COIN_HIT_R);
+    const hitR = activeSkin === 1 ? COIN_HIT_R * 1.5 : COIN_HIT_R;
+    const r2 = (PR + hitR) * (PR + hitR);
     for (const arr of [coins, chicaneCoins]) for (const coin of arr) {
         if (coin.collected) continue;
         const sx = coin.wx - scrollX;
@@ -335,7 +336,7 @@ function checkCoinCollection() {
         if (dx*dx + dy*dy < r2) {
             coin.collected = true;
             if (coinComboTimer > 0) coinCombo++; else coinCombo = 1;
-            coinComboTimer = 2.0;
+            coinComboTimer = activeSkin === 4 ? 3.0 : 2.0;
             const pts = coinCombo * 3;
             bonusScore += pts;
             runCoins++;
@@ -559,6 +560,7 @@ function sfxCoin() {
 }
 
 function sfxDie() {
+    window.webkit?.messageHandlers?.haptic?.postMessage('error');
     if (!_ac || !fxOn) return;
     const t   = _ac.currentTime;
     const src = _ac.createBufferSource();
@@ -771,7 +773,7 @@ function onDown(e) {
             }
             if (_homeBtnRect && inRect(cx, cy, _homeBtnRect)) { titleScreen(); return; }
         }
-        startPlay(); return;
+        startPlay(); holding = true; thrustOn(); return;
     }
     holding = true;
     if (phase === 'play') thrustOn();
@@ -782,6 +784,10 @@ window.addEventListener('pointerdown', e => { e.preventDefault(); onDown(e); });
 window.addEventListener('pointerup',   e => { e.preventDefault(); onUp();   });
 window.addEventListener('keydown', e => {
     if (['Space','ArrowUp'].includes(e.code)) { e.preventDefault(); onDown(); }
+    if (e.code === 'KeyP') {
+        window._freezeDraw = !window._freezeDraw;
+        if (_ac) { window._freezeDraw ? _ac.suspend() : _ac.resume(); }
+    }
 });
 window.addEventListener('keyup', e => {
     if (['Space','ArrowUp'].includes(e.code)) { e.preventDefault(); onUp(); }
@@ -876,7 +882,7 @@ function update(dt) {
     py += vy * dt;
 
     // Gap bonus / slow / magnet decay
-    gapBonus   = Math.max(0, gapBonus   - GAP_DECAY * dt);
+    gapBonus   = Math.max(0, gapBonus   - GAP_DECAY * dt * (activeSkin === 3 ? 0.75 : 1.0));
     slowTime   = Math.max(0, slowTime   - dt);
     magnetTime = Math.max(0, magnetTime - dt);
 
@@ -897,7 +903,7 @@ function update(dt) {
     if (nearMissTimer <= 0) {
         const nmB = boundsAt(scrollX + PX);
         const nmC = Math.min(py - PR - nmB.top, nmB.bot - (py + PR));
-        if (nmC >= 0 && nmC < PR * 2.0) {
+        if (nmC >= 0 && nmC < PR * (activeSkin === 2 ? 3.0 : 2.0)) {
             bonusScore++;
             nearMissTimer = 1.5;
             runNearMisses++;
@@ -1477,9 +1483,9 @@ function draw() {
 
         // Pulsing glow ring
         const pulse = 1 + 0.18 * Math.sin(gtime * 5.5 + coin.wx * 0.013);
-        const glowR = COIN_R * pulse * 2.2;
+        const glowR = COIN_R * pulse * 3.2;
         const grd = ctx.createRadialGradient(sx, coin.y, 0, sx, coin.y, glowR);
-        grd.addColorStop(0,   `rgba(${gr},${gg},${gb},0.30)`);
+        grd.addColorStop(0,   `rgba(${gr},${gg},${gb},0.35)`);
         grd.addColorStop(0.5, `rgba(${gr},${gg},${gb},0.10)`);
         grd.addColorStop(1,   'transparent');
         ctx.beginPath();
@@ -1487,20 +1493,55 @@ function draw() {
         ctx.fillStyle = grd;
         ctx.fill();
 
-        // Coin body
+        // Gem / power-up shape (slowly spinning diamond)
+        ctx.save();
+        ctx.translate(sx, coin.y);
+        const spinAngle = gtime * 0.9 + coin.wx * 0.008;
+        ctx.rotate(spinAngle);
+        const r = COIN_R * pulse;
+
+        // Outer sparkle lines (4 rays)
+        ctx.strokeStyle = `rgba(${gr},${gg},${gb},0.7)`;
+        ctx.lineWidth   = 1.2;
+        for (let i = 0; i < 4; i++) {
+            ctx.save();
+            ctx.rotate(i * Math.PI * 0.5);
+            ctx.beginPath();
+            ctx.moveTo(0, r * 1.3);
+            ctx.lineTo(0, r * 2.1);
+            ctx.stroke();
+            ctx.restore();
+        }
+
+        // Diamond body
         ctx.beginPath();
-        ctx.arc(sx, coin.y, COIN_R * pulse, 0, Math.PI*2);
+        ctx.moveTo(0, -r * 1.35);
+        ctx.lineTo(r * 0.9, 0);
+        ctx.lineTo(0, r * 1.35);
+        ctx.lineTo(-r * 0.9, 0);
+        ctx.closePath();
         ctx.fillStyle   = bodyClr;
         ctx.shadowColor = `rgba(${gr},${gg},${gb},0.95)`;
-        ctx.shadowBlur  = 14;
+        ctx.shadowBlur  = 16;
         ctx.fill();
         ctx.shadowBlur  = 0;
 
-        // Inner highlight
+        // Inner facet highlight (top triangle)
         ctx.beginPath();
-        ctx.arc(sx - COIN_R*0.28, coin.y - COIN_R*0.28, COIN_R*0.38, 0, Math.PI*2);
-        ctx.fillStyle = 'rgba(255,255,200,0.65)';
+        ctx.moveTo(0, -r * 1.35);
+        ctx.lineTo(r * 0.9, 0);
+        ctx.lineTo(-r * 0.9, 0);
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(255,255,255,0.30)';
         ctx.fill();
+
+        // Specular glint
+        ctx.beginPath();
+        ctx.arc(-r * 0.22, -r * 0.45, r * 0.22, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(255,255,255,0.70)';
+        ctx.fill();
+
+        ctx.restore();
 
         ctx.globalAlpha = 1;
     }
@@ -1687,12 +1728,32 @@ function draw() {
     if (phase !== 'dead' || deadT < 0.18) {
         const sk = SKINS[activeSkin] || SKINS[0];
         const [sr, sg, sb] = sk.shadow;
+        const pitchAngle = phase === 'play' ? (vy / MAX_VY) * 0.34 : 0;
+        ctx.save();
+        ctx.translate(PX, py);
+        ctx.rotate(pitchAngle);
+        ctx.translate(-PX, -py);
+
+        if (holding && phase === 'play') {
+            const pulse = 0.75 + 0.25 * Math.sin(gtime * 22);
+            const gx = PX - PR * 0.8, gy = py;
+            const gr = ctx.createRadialGradient(gx, gy, 0, gx, gy, PR * 2.4 * pulse);
+            gr.addColorStop(0,   'rgba(255,200,70,0.9)');
+            gr.addColorStop(0.35,'rgba(255,90,20,0.45)');
+            gr.addColorStop(1,   'rgba(255,40,0,0)');
+            ctx.fillStyle = gr;
+            ctx.beginPath();
+            ctx.arc(gx, gy, PR * 2.4 * pulse, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
         shipPath(PX, py, PR);
         ctx.fillStyle   = phase === 'dead' ? '#ff4040' : sk.color;
         ctx.shadowColor = `rgba(${sr},${sg},${sb},0.95)`;
         ctx.shadowBlur  = 20;
         ctx.fill();
         ctx.shadowBlur  = 0;
+        ctx.restore();
     }
 
     // Particles
@@ -1941,6 +2002,14 @@ function draw() {
                     ctx.shadowBlur  = selected ? 8 : 3;
                     ctx.fillText(SKINS[i].name, cx, dotY + dotR * 1.7);
                     ctx.shadowBlur  = 0;
+                    if (selected && SKINS[i].perk) {
+                        ctx.font        = `${FS*0.016}px -apple-system,'Helvetica Neue',Arial,sans-serif`;
+                        ctx.fillStyle   = `rgba(${sr},${sg},${sb},0.85)`;
+                        ctx.shadowColor = 'rgba(0,0,0,0.90)';
+                        ctx.shadowBlur  = 4;
+                        ctx.fillText(SKINS[i].perk, cx, dotY + dotR * 2.7);
+                        ctx.shadowBlur  = 0;
+                    }
                     ctx.font = `${FS*0.018}px 'Courier New',monospace`;
                 }
             }
@@ -2004,7 +2073,7 @@ function draw() {
             sh(4);
             ctx.font      = `${FS*0.030}px 'Courier New',monospace`;
             ctx.fillStyle = `rgba(255,${rg},${rb},${a})`;
-            ctx.fillText(`${runsWithoutPB}x no pb`, RC, ry);
+            ctx.fillText(`${runsWithoutPB}x no personal best`, RC, ry);
             ry += LN;
         }
 
@@ -2048,9 +2117,9 @@ function draw() {
             ctx.fillText('HOME', LC, botY);
 
             // Tap hint (center)
-            sh(3);
-            ctx.font      = `${FS*0.026}px 'Courier New',monospace`;
-            ctx.fillStyle = `rgba(120,145,200,${b * 0.60})`;
+            sh(6);
+            ctx.font      = `${FS*0.032}px 'Courier New',monospace`;
+            ctx.fillStyle = `rgba(200,220,255,${b * 0.92})`;
             ctx.fillText('tap to play again', W * 0.50, botY);
 
             // SHARE button (right)
@@ -2073,11 +2142,11 @@ function draw() {
 
 // ── Loop ──────────────────────────────────────────────────────────────
 
+window._freezeDraw = false;
 function loop(ts) {
     const dt = Math.min((ts - prev) / 1000, 0.05);
     prev = ts;
-    update(dt);
-    draw();
+    if (!window._freezeDraw) { update(dt); draw(); }
     requestAnimationFrame(loop);
 }
 
