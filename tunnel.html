@@ -130,6 +130,9 @@ let activeSkin    = parseInt(localStorage.getItem('tunnel_skin')  || '0');
 if (!(unlockedSkins & (1 << activeSkin))) activeSkin = 0;
 let skinUnlockIdx = -1;
 let _skinBtnRects = [];
+let streak = parseInt(localStorage.getItem('tunnel_streak') || '0');
+let _shareBtnRect = null;
+let shareCopied = 0;
 let parts, deadT, flashA, shake, trailY;
 let stalactites, nextStalWx;
 let coins, nextCoinWx;
@@ -170,7 +173,7 @@ function titleScreen() {
     gapBonus = 0; slowTime = 0; shieldCount = 0; shieldFlash = 0; notifs = [];
     mines = []; nextMineWx = 99999;
     prevRunScore = 0; lastRunScore = 0; milestoneFlash = 0; milestoneText = '';
-    runCoins = 0; runNearMisses = 0; runMaxCombo = 0; skinUnlockIdx = -1;
+    runCoins = 0; runNearMisses = 0; runMaxCombo = 0; skinUnlockIdx = -1; shareCopied = 0;
     followerActive = false; followerGap = W * 2; followerFade = 0; followerRespawnTimer = 0;
     initAmbParts();
     refreshWave();
@@ -187,7 +190,18 @@ function startPlay() {
     gapBonus = 0; slowTime = 0; shieldCount = 0; shieldFlash = 0; notifs = [];
     mines = []; nextMineWx = 1800;
     bonusScore = 0; milestoneNext = 25; nearMissTimer = 0; coinCombo = 0; coinComboTimer = 0;
-    runCoins = 0; runNearMisses = 0; runMaxCombo = 0; skinUnlockIdx = -1;
+    runCoins = 0; runNearMisses = 0; runMaxCombo = 0; skinUnlockIdx = -1; shareCopied = 0;
+    // Day streak update
+    const _td = new Date();
+    const _todayInt = _td.getUTCFullYear() * 10000 + (_td.getUTCMonth() + 1) * 100 + _td.getUTCDate();
+    const _yd = new Date(Date.now() - 86400000);
+    const _yesterdayInt = _yd.getUTCFullYear() * 10000 + (_yd.getUTCMonth() + 1) * 100 + _yd.getUTCDate();
+    const _lastDay = parseInt(localStorage.getItem('tunnel_lastday') || '0');
+    if (_lastDay !== _todayInt) {
+        streak = _lastDay === _yesterdayInt ? streak + 1 : 1;
+        localStorage.setItem('tunnel_streak', streak);
+        localStorage.setItem('tunnel_lastday', _todayInt);
+    }
     milestoneFlash = 0; milestoneText = '';
     followerActive = false; followerGap = W * 2; followerFade = 0;
     followerRespawnTimer = 6.0; followerPulseTimer = 0;
@@ -700,7 +714,26 @@ function onDown(e) {
     }
     _initAC();
     if (phase === 'title') { startPlay(); return; }
-    if (phase === 'dead' && deadT > 0.9) { startPlay(); return; }
+    if (phase === 'dead' && deadT > 0.9) {
+        if (e && _shareBtnRect) {
+            const rect = cv.getBoundingClientRect();
+            const cx = (e.clientX - rect.left) * (W / rect.width);
+            const cy = (e.clientY - rect.top)  * (H / rect.height);
+            if (inRect(cx, cy, _shareBtnRect)) {
+                const d  = new Date();
+                const mo = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+                const sp = [`${score}pts`];
+                if (runCoins     > 0) sp.push(`${runCoins} coins`);
+                if (runNearMisses> 0) sp.push(`${runNearMisses} close`);
+                if (runMaxCombo  > 1) sp.push(`x${runMaxCombo} combo`);
+                const txt = `TUNNEL ${mo[d.getUTCMonth()]} ${d.getUTCDate()}  ${sp.join('  ')}`;
+                navigator.clipboard?.writeText(txt).catch(() => {});
+                shareCopied = 1.8;
+                return;
+            }
+        }
+        startPlay(); return;
+    }
     holding = true;
     if (phase === 'play') thrustOn();
 }
@@ -753,9 +786,10 @@ function update(dt) {
     }
 
     if (phase === 'dead') {
-        deadT  += dt;
-        flashA  = Math.max(0, flashA - dt * 2.5);
-        shake   = Math.max(0, shake  - dt * 30);
+        deadT      += dt;
+        flashA      = Math.max(0, flashA  - dt * 2.5);
+        shake       = Math.max(0, shake   - dt * 30);
+        shareCopied = Math.max(0, shareCopied - dt);
         return;
     }
 
@@ -1451,6 +1485,18 @@ function draw() {
         ctx.font      = `${W*0.025}px 'Courier New',monospace`;
         ctx.fillStyle = 'rgba(120,145,210,0.60)';
         ctx.fillText(`BEST  ${best}`, W/2, H*0.145);
+    }
+
+    // Next skin nudge – faint pulsing hint when within 20 pts of unlock
+    if (phase === 'play') {
+        const nextSkin = SKINS.find((sk, i) => sk.req && !(unlockedSkins & (1 << i)));
+        if (nextSkin && score < nextSkin.req && nextSkin.req - score <= 20) {
+            const [sr, sg, sb] = nextSkin.shadow;
+            const pulse = 0.28 + 0.18 * Math.sin(gtime * 2.8);
+            ctx.font      = `${W*0.020}px 'Courier New',monospace`;
+            ctx.fillStyle = `rgba(${sr},${sg},${sb},${pulse})`;
+            ctx.fillText(`${nextSkin.req - score} to ${nextSkin.name}`, W/2, H*0.185);
+        }
     }
 
     // Gap bonus bar (bottom, gold)
