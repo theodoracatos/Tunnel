@@ -48,8 +48,8 @@ Two overlapping sin waves, amplitude and frequency scale with difficulty (`_prog
 
 ```javascript
 _halfGap = lerp(H * 0.21,  H * 0.092, _prog);  // 126→55px half-gap
-_wA1     = lerp(H * 0.07,  H * 0.24,  _prog);   // wave amplitude 1
-_wA2     = lerp(H * 0.035, H * 0.11,  _prog);   // wave amplitude 2
+_wA1     = lerp(H * 0.07,  H * 0.12,  _prog);   // wave amplitude 1
+_wA2     = lerp(H * 0.035, H * 0.055, _prog);   // wave amplitude 2
 _wF1     = lerp(0.0025,    0.0048,    _prog);    // wave frequency 1
 _wF2     = lerp(0.0060,    0.0115,    _prog);    // wave frequency 2
 ```
@@ -67,7 +67,7 @@ Coins collect into `gapBonus` (extra halfGap px, capped, decays over time):
 ```javascript
 const GAP_PER_COIN  = H * 0.025;   // +15px halfGap per coin
 const GAP_BONUS_MAX = H * 0.06;    // cap: max ~36px halfGap bonus (72px full gap)
-const GAP_DECAY     = H * 0.012;   // ~2.1s per coin at constant decay rate
+const GAP_DECAY     = H * 0.010;   // ~2.5s per coin at constant decay rate
 ```
 Wall glow shifts purple → cyan when bonus is active. Gold bar at bottom shows remaining bonus.
 

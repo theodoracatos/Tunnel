@@ -45,7 +45,7 @@ const COIN_R          = W  * 0.017;   // visual radius
 const COIN_HIT_R      = W  * 0.032;   // collection radius (generous)
 const GAP_PER_COIN    = H  * 0.025;   // bonus halfGap added per coin
 const GAP_BONUS_MAX   = H  * 0.06;    // cap: max ~36px halfGap bonus (72px full gap)
-const GAP_DECAY       = H  * 0.012;   // bonus lost per second (~2s per coin)
+const GAP_DECAY       = H  * 0.010;   // bonus lost per second (~2.5s per coin)
 
 function lerp(a, b, t) { return a + (b - a) * Math.min(Math.max(t, 0), 1); }
 function lerpClr(a, b, t) {
@@ -119,6 +119,7 @@ let _btnMusicRect = null, _btnFxRect = null;
 let parts, deadT, flashA, shake, trailY;
 let stalactites, nextStalWx;
 let coins, nextCoinWx;
+let chicaneCoins;
 let gapBonus;
 let slowTime, shieldCount, shieldFlash;
 let mines, nextMineWx;
@@ -145,6 +146,7 @@ function titleScreen() {
     parts = []; deadT = 0; flashA = 0; shake = 0; trailY = [];
     stalactites = []; nextStalWx = 99999;
     coins = [];     nextCoinWx = 99999;
+    chicaneCoins = [];
     gapBonus = 0; slowTime = 0; shieldCount = 0; shieldFlash = 0; notifs = [];
     mines = []; nextMineWx = 99999;
     initAmbParts();
@@ -158,9 +160,10 @@ function startPlay() {
     parts = []; deadT = 0; flashA = 0; shake = 0; trailY = [];
     stalactites = []; nextStalWx = 420;
     coins = [];     nextCoinWx = 500;
+    chicaneCoins = [];
     gapBonus = 0; slowTime = 0; shieldCount = 0; shieldFlash = 0; notifs = [];
     mines = []; nextMineWx = 1800;
-    seedRng(42);
+    seedRng(95);
     refreshWave();
     // Force an early red coin so the player meets the shield mechanic quickly
     const rb = boundsBase(750);
@@ -183,6 +186,10 @@ function maintainStalactites() {
         if (_prog > 0.40 && rng() < 0.24) {
             stalactites.push(makeStal(nextStalWx,       true));
             stalactites.push(makeStal(nextStalWx + 65, false));
+            const coinWx = nextStalWx - 85;
+            if (coinWx > 0 && (!chicaneCoins.length || chicaneCoins[chicaneCoins.length - 1].wx < coinWx - 30)) {
+                chicaneCoins.push({ wx: coinWx, y: centerAt(coinWx), collected: false, type: 'gold', fade: 1.0 });
+            }
         } else {
             stalactites.push(makeStal(nextStalWx, rng() < 0.5));
         }
@@ -190,6 +197,9 @@ function maintainStalactites() {
     }
     while (stalactites.length && stalactites[0].wx < scrollX - 150) {
         stalactites.shift();
+    }
+    while (chicaneCoins.length && chicaneCoins[0].wx < scrollX - 200) {
+        chicaneCoins.shift();
     }
 }
 
@@ -248,7 +258,7 @@ function maintainCoins() {
 
 function checkCoinCollection() {
     const r2 = (PR + COIN_HIT_R) * (PR + COIN_HIT_R);
-    for (const coin of coins) {
+    for (const arr of [coins, chicaneCoins]) for (const coin of arr) {
         if (coin.collected) continue;
         const sx = coin.wx - scrollX;
         if (sx < -60 || sx > W + 60) continue;
@@ -665,7 +675,7 @@ function update(dt) {
     maintainMines();
 
     // Fade coins that are blocked by a stalactite or have scrolled off the left edge
-    for (const coin of coins) {
+    for (const arr of [coins, chicaneCoins]) for (const coin of arr) {
         if (coin.collected || coin.fade <= 0) continue;
         const csx = coin.wx - scrollX;
         if (csx < 0) {
@@ -992,8 +1002,8 @@ function draw() {
         ctx.fill();
     }
 
-    // Coins
-    for (const coin of coins) {
+    // Coins (regular + chicane guaranteed)
+    for (const arr of [coins, chicaneCoins]) for (const coin of arr) {
         if (coin.collected || coin.fade <= 0) continue;
         const sx = coin.wx - scrollX;
         if (sx < -50 || sx > W+50) continue;
