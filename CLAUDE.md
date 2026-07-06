@@ -8,8 +8,8 @@
 
 ## What is this
 
-TUNNEL is a single-file HTML5 Canvas hold-to-thrust cave flyer game.
-Single file: `tunnel.html` - no libraries, no build step.
+TUNL is a single-file HTML5 Canvas hold-to-thrust cave flyer game.
+Single file: `tunl.html` - no libraries, no build step.
 Open in a browser to play.
 
 ## How to play

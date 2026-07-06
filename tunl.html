@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
-<title>TUNNEL</title>
+<title>TUNL</title>
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
 body {
@@ -103,6 +103,14 @@ function centerAt(wx) {
     return Math.max(_halfGap + 8, Math.min(H - _halfGap - 8, raw));
 }
 
+// halfGapAt computes the corridor half-gap for a specific world x.
+// Coins and stalactites are placed up to ~900px ahead, so using the global
+// _halfGap (derived from the CURRENT scrollX) would give a wider gap than
+// the player will actually see when they arrive - placing coins inside walls.
+function halfGapAt(wx) {
+    return lerp(H * 0.21, H * 0.092, Math.min(wx / 10000, 1));
+}
+
 // boundsAt uses base _halfGap + current bonus so both rendering and
 // collision benefit from collected coins.
 function boundsAt(wx) {
@@ -111,11 +119,21 @@ function boundsAt(wx) {
     return { top: cy - hg, bot: cy + hg };
 }
 
-// boundsBase ignores the bonus – used only for placing coins safely
-// so they're always reachable even without a bonus active.
+// boundsBase computes placement bounds using the wave params that will actually
+// be in effect when the player reaches wx (not the current global params).
+// centerAt() uses global _wA1/_wF1 etc., which are derived from the current
+// scrollX - those params change as the player progresses, so evaluating them
+// at a future wx gives a different center than what rendering will use.
 function boundsBase(wx) {
-    const cy = centerAt(wx);
-    return { top: cy - _halfGap, bot: cy + _halfGap };
+    const p   = Math.min(wx / 10000, 1);
+    const wA1 = lerp(H * 0.07,  H * 0.12,  p);
+    const wA2 = lerp(H * 0.035, H * 0.055, p);
+    const wF1 = lerp(0.0025,    0.0048,    p);
+    const wF2 = lerp(0.0060,    0.0115,    p);
+    const hg  = halfGapAt(wx);
+    const raw = H / 2 + wA1 * Math.sin(wx * wF1) + wA2 * Math.sin(wx * wF2 + 1.57);
+    const cy  = Math.max(hg + 8, Math.min(H - hg - 8, raw));
+    return { top: cy - hg, bot: cy + hg };
 }
 
 // ── State ─────────────────────────────────────────────────────────────
@@ -133,19 +151,19 @@ let _skinBtnRects = [];
 let streak = parseInt(localStorage.getItem('tunnel_streak') || '0');
 let _shareBtnRect = null;
 let shareCopied = 0;
-let parts, deadT, flashA, shake, trailY;
+let parts, thrustParts, deadT, flashA, shake, trailY;
 let stalactites, nextStalWx;
 let coins, nextCoinWx;
 let chicaneCoins;
 let gapBonus;
-let slowTime, shieldCount, shieldFlash;
+let slowTime, shieldCount, shieldFlash, magnetTime;
 let mines, nextMineWx;
 let notifs;
 let bonusScore, milestoneNext, nearMissTimer, coinCombo, coinComboTimer;
 let runCoins, runNearMisses, runMaxCombo;
 let prevRunScore, lastRunScore;
 let milestoneFlash, milestoneText;
-let followerActive, followerGap, followerFade, followerRespawnTimer, followerPulseTimer;
+let followerActive, followerGap, followerY, followerFade, followerRespawnTimer, followerPulseTimer;
 let gtime = 0;
 let ambParts = [];
 let deathMarkers = [];   // persists across runs: { wx, wallY }
@@ -166,11 +184,11 @@ function initAmbParts() {
 function titleScreen() {
     phase = 'title'; py = H / 2; vy = 0; holding = false; scrollX = 0;
     score = 0; newBest = false;
-    parts = []; deadT = 0; flashA = 0; shake = 0; trailY = [];
+    parts = []; thrustParts = []; deadT = 0; flashA = 0; shake = 0; trailY = [];
     stalactites = []; nextStalWx = 99999;
     coins = [];     nextCoinWx = 99999;
     chicaneCoins = [];
-    gapBonus = 0; slowTime = 0; shieldCount = 0; shieldFlash = 0; notifs = [];
+    gapBonus = 0; slowTime = 0; shieldCount = 0; shieldFlash = 0; magnetTime = 0; notifs = [];
     mines = []; nextMineWx = 99999;
     prevRunScore = 0; lastRunScore = 0; milestoneFlash = 0; milestoneText = '';
     runCoins = 0; runNearMisses = 0; runMaxCombo = 0; skinUnlockIdx = -1; shareCopied = 0;
@@ -183,11 +201,11 @@ function startPlay() {
     thrustOff();
     phase = 'play'; py = H / 2; vy = 0; holding = false; scrollX = 0;
     score = 0; newBest = false;
-    parts = []; deadT = 0; flashA = 0; shake = 0; trailY = [];
+    parts = []; thrustParts = []; deadT = 0; flashA = 0; shake = 0; trailY = [];
     stalactites = []; nextStalWx = 420;
     coins = [];     nextCoinWx = 500;
     chicaneCoins = [];
-    gapBonus = 0; slowTime = 0; shieldCount = 0; shieldFlash = 0; notifs = [];
+    gapBonus = 0; slowTime = 0; shieldCount = 0; shieldFlash = 0; magnetTime = 0; notifs = [];
     mines = []; nextMineWx = 1800;
     bonusScore = 0; milestoneNext = 25; nearMissTimer = 0; coinCombo = 0; coinComboTimer = 0;
     runCoins = 0; runNearMisses = 0; runMaxCombo = 0; skinUnlockIdx = -1; shareCopied = 0;
@@ -204,7 +222,7 @@ function startPlay() {
     }
     milestoneFlash = 0; milestoneText = '';
     followerActive = false; followerGap = W * 2; followerFade = 0;
-    followerRespawnTimer = 6.0; followerPulseTimer = 0;
+    followerRespawnTimer = 3.0; followerPulseTimer = 0;
     const _d = new Date();
     seedRng(_d.getUTCFullYear() * 10000 + (_d.getUTCMonth() + 1) * 100 + _d.getUTCDate());
     refreshWave();
@@ -274,17 +292,21 @@ function coinBlockedByStal(wx, y) {
 }
 
 function makeCoin(wx) {
-    const b = boundsBase(wx);
-    const margin = (b.bot - b.top) * 0.32;
-    const cy     = (b.top + b.bot) / 2;
-    const coinY  = cy + (rng() - 0.5) * 2 * margin;
+    const b   = boundsBase(wx);
+    // buf = coin body + headroom for wave-center drift over lookahead distance
+    const buf = COIN_R * 3;
+    const lo  = b.top + buf;
+    const hi  = b.bot - buf;
+    if (hi <= lo) return null;
+    const cy     = (lo + hi) / 2;
+    const margin = (hi - lo) * 0.40;
+    const coinY  = Math.max(lo, Math.min(hi, cy + (rng() - 0.5) * 2 * margin));
     const r = rng();
-    const blueEnd = lerp(0.65, 0.48, _prog);
-    const redEnd  = lerp(0.82, 0.65, _prog);
-    const type = r < blueEnd ? 'gold' : r < redEnd ? 'blue' : 'red';
-    const blocked = coinBlockedByStal(wx, coinY);
-
-    if (blocked) return null;
+    const blueEnd  = lerp(0.60, 0.44, _prog);
+    const redEnd   = lerp(0.77, 0.61, _prog);
+    const greenEnd = 0.90;
+    const type = r < blueEnd ? 'gold' : r < redEnd ? 'blue' : r < greenEnd ? 'red' : 'green';
+    if (coinBlockedByStal(wx, coinY)) return null;
     return { wx, y: coinY, collected: false, type, fade: 1.0 };
 }
 
@@ -326,6 +348,12 @@ function checkCoinCollection() {
                 notifs.push({ x: sx, y: coin.y - 16, life: 1.1, text: '+SHIELD', color: [255,90,90] });
                 sfxShield();
                 window.webkit?.messageHandlers?.haptic?.postMessage('success');
+            } else if (coin.type === 'green') {
+                magnetTime = Math.min(magnetTime + 3.0, 5.0);
+                burstCoin(sx, coin.y, 120);
+                notifs.push({ x: sx, y: coin.y - 16, life: 1.1, text: '+MAGNET', color: [80,255,130] });
+                sfxMagnet();
+                window.webkit?.messageHandlers?.haptic?.postMessage('light');
             } else {
                 gapBonus = Math.min(GAP_BONUS_MAX, gapBonus + GAP_PER_COIN);
                 burstCoin(sx, coin.y, 44);
@@ -582,6 +610,22 @@ function sfxShield() {
     });
 }
 
+function sfxMagnet() {
+    if (!_ac || !fxOn) return;
+    const t = _ac.currentTime;
+    [220, 330, 500, 750].forEach((freq, i) => {
+        const o = _ac.createOscillator(), g = _ac.createGain();
+        o.connect(g); g.connect(_ac.destination);
+        o.type = 'sine';
+        const t0 = t + i * 0.07;
+        o.frequency.setValueAtTime(freq, t0);
+        o.frequency.exponentialRampToValueAtTime(freq * 1.8, t0 + 0.28);
+        g.gain.setValueAtTime(0.11, t0);
+        g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.32);
+        o.start(t0); o.stop(t0 + 0.33);
+    });
+}
+
 function sfxShieldBreak() {
     if (!_ac || !fxOn) return;
     const t   = _ac.currentTime;
@@ -726,7 +770,7 @@ function onDown(e) {
                 if (runCoins     > 0) sp.push(`${runCoins} coins`);
                 if (runNearMisses> 0) sp.push(`${runNearMisses} close`);
                 if (runMaxCombo  > 1) sp.push(`x${runMaxCombo} combo`);
-                const txt = `TUNNEL ${mo[d.getUTCMonth()]} ${d.getUTCDate()}  ${sp.join('  ')}`;
+                const txt = `TUNL ${mo[d.getUTCMonth()]} ${d.getUTCDate()}  ${sp.join('  ')}`;
                 navigator.clipboard?.writeText(txt).catch(() => {});
                 shareCopied = 1.8;
                 return;
@@ -777,6 +821,28 @@ function update(dt) {
         if (p.life <= 0) parts.splice(i, 1);
     }
 
+    // Thruster particles
+    for (let i = thrustParts.length - 1; i >= 0; i--) {
+        const p = thrustParts[i];
+        p.x += p.vx*dt; p.y += p.vy*dt; p.vx *= 0.88; p.vy *= 0.88;
+        p.life -= dt * 3.2;
+        if (p.life <= 0) thrustParts.splice(i, 1);
+    }
+    if (holding && phase === 'play') {
+        for (let i = 0; i < 3; i++) {
+            const spread = (Math.random() - 0.5) * PR * 1.4;
+            thrustParts.push({
+                x:    PX - PR * 0.85 + (Math.random() - 0.5) * PR * 0.4,
+                y:    py + spread,
+                vx:   -(90 + Math.random() * 170),
+                vy:   spread * 3.5 + (Math.random() - 0.5) * 25,
+                life: 0.6 + Math.random() * 0.3,
+                r:    1.0 + Math.random() * 2.4,
+                h:    18 + Math.random() * 38,
+            });
+        }
+    }
+
     // Floating notifs (always running)
     for (let i = notifs.length - 1; i >= 0; i--) {
         const n = notifs[i];
@@ -814,9 +880,10 @@ function update(dt) {
     vy  = Math.max(-MAX_VY, Math.min(MAX_VY, vy));
     py += vy * dt;
 
-    // Gap bonus / slow decay
-    gapBonus = Math.max(0, gapBonus - GAP_DECAY * dt);
-    slowTime = Math.max(0, slowTime - dt);
+    // Gap bonus / slow / magnet decay
+    gapBonus   = Math.max(0, gapBonus   - GAP_DECAY * dt);
+    slowTime   = Math.max(0, slowTime   - dt);
+    magnetTime = Math.max(0, magnetTime - dt);
 
     // Scroll + score
     const spd = scrollSpd() * (slowTime > 0 ? 0.60 : 1.0);
@@ -883,24 +950,53 @@ function update(dt) {
 
     // Mine collision
     const mineHitR2 = (PR + MINE_R) * (PR + MINE_R);
-    for (const m of mines) {
+    for (let mi = 0; mi < mines.length; mi++) {
+        const m  = mines[mi];
         const sx = m.wx - scrollX;
         if (sx < -80 || sx > W + 80) continue;
         const my = m.baseY + m.bobAmp * Math.sin(gtime * 1.8 + m.phase);
         const dx = PX - sx, dy = py - my;
-        if (dx*dx + dy*dy < mineHitR2) { if (die()) return; break; }
+        if (dx*dx + dy*dy < mineHitR2) {
+            if (die()) return;
+            // Shield absorbed - destroy the mine so it can't immediately re-hit
+            mines.splice(mi, 1);
+            shake += 12;
+            burst(sx, my);
+            notifs.push({ x: sx, y: my - H*0.06, life: 1.1, text: 'BLOCKED', color: [255, 90, 40] });
+            window.webkit?.messageHandlers?.haptic?.postMessage('heavy');
+            break;
+        }
+    }
+
+    // Magnet: pull visible uncollected coins toward the player
+    if (magnetTime > 0) {
+        const playerWx = scrollX + PX;
+        const pullSpeed = W * 3.0;
+        for (const arr of [coins, chicaneCoins]) for (const coin of arr) {
+            if (coin.collected || coin.fade <= 0) continue;
+            const csx = coin.wx - scrollX;
+            if (csx < -20 || csx > W + 60) continue;
+            const dx = playerWx - coin.wx, dy = py - coin.y;
+            const dist = Math.sqrt(dx*dx + dy*dy);
+            if (dist > 1) {
+                const move = Math.min(pullSpeed * dt, dist);
+                coin.wx += (dx / dist) * move;
+                coin.y  += (dy / dist) * move;
+            }
+        }
     }
 
     // Coin collection
     checkCoinCollection();
 
     // Follower
-    if (_prog >= 0.50) {
+    {
         if (!followerActive) {
             followerRespawnTimer = Math.max(0, followerRespawnTimer - dt);
             if (followerRespawnTimer <= 0) {
                 followerActive = true;
-                followerGap    = PX + W * 0.55;   // ~462px: ~330px off-screen left
+                followerGap    = W * 0.15;
+                followerY      = py;
                 followerFade   = 0;
                 followerPulseTimer = 0;
                 notifs.push({ x: W * 0.12, y: py - H * 0.08, life: 1.6,
@@ -909,9 +1005,53 @@ function update(dt) {
             }
         } else {
             followerFade = Math.min(1, followerFade + dt * 1.8);
-            // gap grows at 24% of scrollspd (player faster); shrinks at 16% when slow
-            const slowFactor = slowTime > 0 ? 0.60 : 1.0;
-            followerGap += scrollSpd() * (slowFactor - 0.76) * dt;
+            // Exponential approach + small constant floor so gap actually reaches 0
+            const approachK = slowTime > 0 ? 1.2 : followerFade < 1 ? 2.0 : 0.5;
+            followerGap -= (followerGap * approachK + 3) * dt;
+
+            // Chase player Y, steering around stalactites
+            const _fWx  = scrollX + PX - Math.max(followerGap, 0);
+            const _fR   = PR * 1.5;
+            const _fcb  = boundsAt(_fWx);
+            let _flo = _fcb.top + _fR, _fhi = _fcb.bot - _fR;
+            for (const s of stalactites) {
+                if (Math.abs(s.wx - _fWx) > 90) continue;
+                const _sb = boundsAt(s.wx);
+                if (s.isTop) _flo = Math.max(_flo, _sb.top + s.length + _fR);
+                else         _fhi = Math.min(_fhi, _sb.bot - s.length - _fR);
+            }
+            const _fTarget = Math.max(_flo, Math.min(_fhi > _flo ? _fhi : _flo, py));
+            followerY += (_fTarget - followerY) * Math.min(5 * dt, 1);
+
+            // Stalactite collision - follower dies
+            {
+                const _fsx = PX - Math.max(followerGap, 0);
+                const _fr  = PR * 0.90, _fr2 = _fr * _fr;
+                for (const s of stalactites) {
+                    const _ssx = s.wx - scrollX;
+                    if (Math.abs(_ssx - _fsx) > s.width / 2 + _fr + 4) continue;
+                    const _b = boundsAt(s.wx), _hw = s.width / 2;
+                    let ax, ay, bx2, by2, tx, ty;
+                    if (s.isTop) {
+                        ax = _ssx-_hw; ay = _b.top; bx2 = _ssx+_hw; by2 = _b.top; tx = _ssx; ty = _b.top+s.length;
+                    } else {
+                        ax = _ssx-_hw; ay = _b.bot; bx2 = _ssx+_hw; by2 = _b.bot; tx = _ssx; ty = _b.bot-s.length;
+                    }
+                    const _hit = inTri(_fsx, followerY, ax, ay, bx2, by2, tx, ty)
+                              || ptSeg2(_fsx, followerY, ax, ay, tx,  ty)  < _fr2
+                              || ptSeg2(_fsx, followerY, bx2, by2, tx, ty) < _fr2
+                              || ptSeg2(_fsx, followerY, ax, ay, bx2, by2) < _fr2;
+                    if (_hit) {
+                        followerActive       = false;
+                        followerFade         = 0;
+                        followerRespawnTimer = 6;
+                        burst(_fsx, followerY);
+                        notifs.push({ x: _fsx, y: followerY - H*0.06, life: 1.3, text: 'ESCAPED!', color: [80, 255, 120] });
+                        break;
+                    }
+                }
+            }
+            if (followerActive) { // survived stalactite check
 
             // Heartbeat when close enough to be on-screen
             followerPulseTimer = Math.max(0, followerPulseTimer - dt);
@@ -920,18 +1060,23 @@ function update(dt) {
                 followerPulseTimer = 0.35 + (followerGap / (PX * 1.8)) * 0.45;
             }
 
-            // Caught
-            if (followerGap <= 0) {
+            // Caught - explode like a bomb, bypass shield
+            if (followerGap <= PR * 1.90) {
+                const fsx = PX - followerGap;
+                shake = 20;
+                burst(fsx, followerY);
+                notifs.push({ x: fsx, y: py - H*0.06, life: 1.1, text: 'CAUGHT', color: [255, 40, 10] });
                 if (die()) return;
-                followerGap = PX * 0.85;  // shielded - push it back
+                followerGap = PX * 0.85;
             }
 
             // Outrun - follower gives up
-            if (followerGap > W * 2.0) {
+            if (followerGap > W * 0.8) {
                 followerActive = false;
                 followerFade   = 0;
-                followerRespawnTimer = 12;
+                followerRespawnTimer = 3;
             }
+            } // end stalactite-survived else
         }
     }
 
@@ -950,8 +1095,8 @@ function update(dt) {
     }
 }
 
-function die() {
-    if (shieldCount > 0) {
+function die(bypassShield = false) {
+    if (!bypassShield && shieldCount > 0) {
         shieldCount--;
         shieldFlash = 1.0; shake = 8;
         // Push to corridor center so the next frame passes collision
@@ -1017,9 +1162,9 @@ function getTheme() {
 }
 
 function drawCoinIcon(cx, cy, type, r) {
-    const isBlu = type === 'blue', isRed = type === 'red';
-    const bodyClr = isBlu ? '#4dd9ff' : isRed ? '#ff5555' : '#ffd93d';
-    const [gr, gg, gb] = isBlu ? [60,200,255] : isRed ? [255,70,70] : [255,210,40];
+    const isBlu = type === 'blue', isRed = type === 'red', isGrn = type === 'green';
+    const bodyClr = isBlu ? '#4dd9ff' : isRed ? '#ff5555' : isGrn ? '#50ff88' : '#ffd93d';
+    const [gr, gg, gb] = isBlu ? [60,200,255] : isRed ? [255,70,70] : isGrn ? [60,255,130] : [255,210,40];
     ctx.beginPath();
     ctx.arc(cx, cy, r, 0, Math.PI*2);
     ctx.fillStyle   = bodyClr;
@@ -1270,9 +1415,9 @@ function draw() {
         ctx.globalAlpha = coin.fade;
 
         // Per-type colours
-        const isBlu = coin.type === 'blue', isRed = coin.type === 'red';
-        const bodyClr  = isBlu ? '#4dd9ff' : isRed ? '#ff5555' : '#ffd93d';
-        const glowRGBA = isBlu ? [60,200,255] : isRed ? [255,70,70] : [255,210,40];
+        const isBlu = coin.type === 'blue', isRed = coin.type === 'red', isGrn = coin.type === 'green';
+        const bodyClr  = isBlu ? '#4dd9ff' : isRed ? '#ff5555' : isGrn ? '#50ff88' : '#ffd93d';
+        const glowRGBA = isBlu ? [60,200,255] : isRed ? [255,70,70] : isGrn ? [60,255,130] : [255,210,40];
         const [gr, gg, gb] = glowRGBA;
 
         // Pulsing glow ring
@@ -1327,19 +1472,19 @@ function draw() {
 
         // Left-edge warning glow (follower off-screen)
         if (fsx < 0) {
-            const nearness = Math.max(0, 1.0 - fgap / (W * 1.1));
+            const nearness = Math.max(0, 1.0 - fgap / (W * 0.6));
             if (nearness > 0) {
                 const pulse = 0.45 + 0.55 * Math.sin(gtime * 5.5 + 1);
-                ctx.fillStyle = `rgba(255,30,0,${nearness * pulse * 0.38 * followerFade})`;
-                ctx.fillRect(-5, 0, W * 0.030, H);
+                ctx.fillStyle = `rgba(255,30,0,${nearness * pulse * 0.55 * followerFade})`;
+                ctx.fillRect(-5, 0, W * 0.040, H);
             }
         }
 
         // Body (drawn when at least partially on-screen)
-        if (fsx > -PR * 5) {
+        if (fsx > -W * 0.25) {
             const fr    = PR * 0.90;
             const pulse = 0.84 + 0.16 * Math.sin(gtime * 9.2);
-            const fsy   = centerAt(fWx);
+            const fsy   = followerY;
 
             const fgrd = ctx.createRadialGradient(fsx, fsy, 0, fsx, fsy, fr * 4.2);
             fgrd.addColorStop(0,   `rgba(255,50,10,${0.42 * followerFade})`);
@@ -1364,6 +1509,14 @@ function draw() {
             ctx.fillStyle = `rgba(255,130,70,${0.42 * followerFade})`;
             ctx.fill();
         }
+    }
+
+    // Thruster particle trail (drawn before player so it appears behind)
+    for (const p of thrustParts) {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, Math.max(p.r * p.life, 0.3), 0, Math.PI * 2);
+        ctx.fillStyle = `hsla(${p.h},100%,72%,${Math.max(p.life, 0)})`;
+        ctx.fill();
     }
 
     // Speed lines – horizontal streaks when vertical velocity is high
@@ -1417,6 +1570,19 @@ function draw() {
             ctx.stroke();
             ctx.shadowBlur  = 0;
         }
+    }
+
+    // Magnet ring
+    if (magnetTime > 0 && phase === 'play') {
+        const sp = 1 + 0.20 * Math.sin(gtime * 11);
+        ctx.beginPath();
+        ctx.arc(PX, py, PR * (3.2 + 0.35 * sp), 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(80,255,130,${Math.min(magnetTime / 1.5, 1.0) * 0.75})`;
+        ctx.lineWidth   = 2.0;
+        ctx.shadowColor = 'rgba(60,255,110,0.85)';
+        ctx.shadowBlur  = 12;
+        ctx.stroke();
+        ctx.shadowBlur  = 0;
     }
 
     // Player
@@ -1523,6 +1689,18 @@ function draw() {
         ctx.fillRect(W*0.225, barY, barW, barH);
     }
 
+    // Magnet bar (bottom, green, just above slow bar)
+    if (phase === 'play' && magnetTime > 0) {
+        const ratio = Math.min(magnetTime / 3.0, 1.0);
+        const barW  = W * 0.55 * ratio;
+        const barY  = H * 0.925;
+        const barH  = 4;
+        ctx.fillStyle = 'rgba(60,255,120,0.15)';
+        ctx.fillRect(W*0.225, barY, W*0.55, barH);
+        ctx.fillStyle = `rgba(80,255,130,${0.55 + ratio*0.35})`;
+        ctx.fillRect(W*0.225, barY, barW, barH);
+    }
+
     // Milestone flash
     if (milestoneFlash > 0 && phase === 'play') {
         const mfa = milestoneFlash;
@@ -1542,7 +1720,7 @@ function draw() {
         ctx.textBaseline = 'middle';
         ctx.font      = `bold ${W*0.085}px 'Courier New',monospace`;
         ctx.fillStyle = 'rgba(175,205,255,0.93)';
-        ctx.fillText('TUNNEL', W/2, H/2-H*0.10);
+        ctx.fillText('TUNL', W/2, H/2-H*0.10);
 
         ctx.font      = `${W*0.030}px 'Courier New',monospace`;
         ctx.fillStyle = 'rgba(130,160,230,0.65)';
