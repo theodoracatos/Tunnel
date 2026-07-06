@@ -68,10 +68,11 @@ function rng() {
 
 // ── Procedural tunnel ───────────────────────────────────────────────
 
-let _prog, _halfGap, _wA1, _wA2, _wF1, _wF2;
+let _prog, _prog2, _halfGap, _wA1, _wA2, _wF1, _wF2;
 
 function refreshWave() {
     _prog    = Math.min(scrollX / 10000, 1);
+    _prog2   = Math.min(Math.max(scrollX - 10000, 0) / 40000, 1);
     _halfGap = lerp(H * 0.21,  H * 0.092, _prog);
     _wA1     = lerp(H * 0.07,  H * 0.12,  _prog);
     _wA2     = lerp(H * 0.035, H * 0.055, _prog);
@@ -79,10 +80,10 @@ function refreshWave() {
     _wF2     = lerp(0.0060,    0.0115,    _prog);
 }
 
-function scrollSpd()   { return lerp(200,  560, _prog); }
-function stalSpacing() { return lerp(260,  100, _prog); }
-function stalLenFrac() { return lerp(0.36, 0.50, _prog); }
-function coinSpacing() { return lerp(600,  320, _prog); }
+function scrollSpd()   { return lerp(lerp(200,  560, _prog), 700, _prog2); }
+function stalSpacing() { return lerp(lerp(260,  100, _prog),  70, _prog2); }
+function stalLenFrac() { return lerp(lerp(0.36, 0.50, _prog), 0.60, _prog2); }
+function coinSpacing() { return lerp(lerp(600,  320, _prog), 230, _prog2); }
 function mineSpacing() { return lerp(900,  340, _prog); }
 
 const MINE_R = W * 0.022;
@@ -124,6 +125,9 @@ let gapBonus;
 let slowTime, shieldCount, shieldFlash;
 let mines, nextMineWx;
 let notifs;
+let bonusScore, milestoneNext, nearMissTimer, coinCombo, coinComboTimer;
+let prevRunScore, lastRunScore;
+let milestoneFlash, milestoneText;
 let gtime = 0;
 let ambParts = [];
 let deathMarkers = [];   // persists across runs: { wx, wallY, side }
@@ -149,6 +153,7 @@ function titleScreen() {
     chicaneCoins = [];
     gapBonus = 0; slowTime = 0; shieldCount = 0; shieldFlash = 0; notifs = [];
     mines = []; nextMineWx = 99999;
+    prevRunScore = 0; lastRunScore = 0; milestoneFlash = 0; milestoneText = '';
     initAmbParts();
     refreshWave();
 }
@@ -163,6 +168,8 @@ function startPlay() {
     chicaneCoins = [];
     gapBonus = 0; slowTime = 0; shieldCount = 0; shieldFlash = 0; notifs = [];
     mines = []; nextMineWx = 1800;
+    bonusScore = 0; milestoneNext = 25; nearMissTimer = 0; coinCombo = 0; coinComboTimer = 0;
+    milestoneFlash = 0; milestoneText = '';
     seedRng(95);
     refreshWave();
     // Force an early red coin so the player meets the shield mechanic quickly
@@ -175,7 +182,7 @@ function startPlay() {
 
 function makeStal(wx, isTop) {
     const rawLen = _halfGap * stalLenFrac() * (0.70 + rng() * 0.60);
-    const length = Math.min(rawLen, _halfGap * 0.50);
+    const length = Math.min(rawLen, _halfGap * stalLenFrac());
     const width  = W * lerp(0.048, 0.030, _prog);
     return { wx, isTop, length, width };
 }
@@ -183,7 +190,7 @@ function makeStal(wx, isTop) {
 function maintainStalactites() {
     while (nextStalWx < scrollX + W + 600) {
         const spacing = stalSpacing() * (0.65 + rng() * 0.70);
-        if (_prog > 0.40 && rng() < 0.24) {
+        if (_prog > 0.40 && rng() < lerp(0.24, 0.42, _prog2)) {
             stalactites.push(makeStal(nextStalWx,       true));
             stalactites.push(makeStal(nextStalWx + 65, false));
             const coinWx = nextStalWx - 85;
@@ -265,23 +272,30 @@ function checkCoinCollection() {
         const dx = PX - sx, dy = py - coin.y;
         if (dx*dx + dy*dy < r2) {
             coin.collected = true;
-            score += 3;
+            if (coinComboTimer > 0) coinCombo++; else coinCombo = 1;
+            coinComboTimer = 2.0;
+            const pts = coinCombo * 3;
+            bonusScore += pts;
             if (coin.type === 'blue') {
                 slowTime = Math.min(slowTime + 4.0, 8.0);
                 burstCoin(sx, coin.y, 195);
-                notifs.push({ x: sx, y: coin.y - 14, life: 1.1, text: '+SLOW',   color: [60,210,255] });
+                notifs.push({ x: sx, y: coin.y - 16, life: 1.1, text: '+SLOW',   color: [60,210,255] });
                 sfxSlow();
                 window.webkit?.messageHandlers?.haptic?.postMessage('light');
             } else if (coin.type === 'red') {
                 shieldCount = Math.min(shieldCount + 1, 3);
                 burstCoin(sx, coin.y, 0);
-                notifs.push({ x: sx, y: coin.y - 14, life: 1.1, text: '+SHIELD', color: [255,90,90] });
+                notifs.push({ x: sx, y: coin.y - 16, life: 1.1, text: '+SHIELD', color: [255,90,90] });
                 sfxShield();
                 window.webkit?.messageHandlers?.haptic?.postMessage('success');
             } else {
                 gapBonus = Math.min(GAP_BONUS_MAX, gapBonus + GAP_PER_COIN);
                 burstCoin(sx, coin.y, 44);
-                notifs.push({ x: sx, y: coin.y - 14, life: 1.1, text: '+WIDE',   color: [255,220,55] });
+                notifs.push({ x: sx, y: coin.y - 16, life: 1.1, text: `+${pts}`, color: [255,220,55] });
+                if (coinCombo > 1) {
+                    notifs.push({ x: sx, y: coin.y - 34, life: 1.3, text: `x${coinCombo}`, color: [255,255,80] });
+                    sfxCombo(coinCombo);
+                }
                 sfxCoin();
                 window.webkit?.messageHandlers?.haptic?.postMessage('light');
             }
@@ -545,6 +559,46 @@ function sfxShieldBreak() {
 }
 
 
+function sfxMilestone(n) {
+    if (!_ac || !fxOn) return;
+    const t = _ac.currentTime;
+    const base = n >= 200 ? 660 : n >= 100 ? 550 : 440;
+    [base, base*1.25, base*1.5, base*2].forEach((freq, i) => {
+        const o = _ac.createOscillator(), g = _ac.createGain();
+        o.connect(g); g.connect(_ac.destination);
+        o.type = 'sine'; o.frequency.value = freq;
+        const t0 = t + i * 0.06;
+        g.gain.setValueAtTime(0.13, t0);
+        g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.40);
+        o.start(t0); o.stop(t0 + 0.42);
+    });
+}
+
+function sfxNearMiss() {
+    if (!_ac || !fxOn) return;
+    const t = _ac.currentTime;
+    const o = _ac.createOscillator(), g = _ac.createGain();
+    o.connect(g); g.connect(_ac.destination);
+    o.type = 'sine';
+    o.frequency.setValueAtTime(880, t);
+    o.frequency.exponentialRampToValueAtTime(1760, t + 0.10);
+    g.gain.setValueAtTime(0.08, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.14);
+    o.start(t); o.stop(t + 0.15);
+}
+
+function sfxCombo(level) {
+    if (!_ac || !fxOn) return;
+    const t = _ac.currentTime;
+    const o = _ac.createOscillator(), g = _ac.createGain();
+    o.connect(g); g.connect(_ac.destination);
+    o.type = 'triangle';
+    o.frequency.value = Math.min(600 + level * 120, 1400);
+    g.gain.setValueAtTime(0.09, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+    o.start(t); o.stop(t + 0.20);
+}
+
 function thrustOn() {
     if (!_ac || _tNode || !fxOn) return;
     const src = _ac.createBufferSource();
@@ -603,6 +657,20 @@ window.addEventListener('keydown', e => {
 window.addEventListener('keyup', e => {
     if (['Space','ArrowUp'].includes(e.code)) { e.preventDefault(); onUp(); }
 });
+
+// ── Milestone ────────────────────────────────────────────────────────
+
+function triggerMilestone(n) {
+    milestoneFlash = 1.0;
+    milestoneText  = n >= 200 ? `${n}!!!` : n >= 100 ? `${n}!!` : `${n}!`;
+    for (let i = 0; i < 28; i++) {
+        const a = (i / 28) * Math.PI * 2;
+        const v = 120 + Math.random() * 220;
+        parts.push({ x: W/2, y: H*0.28, vx: Math.cos(a)*v, vy: Math.sin(a)*v,
+                     life: 1.1, r: 1.5+Math.random()*3, h: 40+Math.random()*25 });
+    }
+    sfxMilestone(n);
+}
 
 // ── Update ────────────────────────────────────────────────────────────
 
@@ -663,7 +731,33 @@ function update(dt) {
     const spd = scrollSpd() * (slowTime > 0 ? 0.60 : 1.0);
     scrollX += spd * dt;
     refreshWave();
-    score = Math.floor(scrollX / 60);
+    score = Math.floor(scrollX / 60) + bonusScore;
+
+    // Milestone check
+    if (score >= milestoneNext) {
+        triggerMilestone(milestoneNext);
+        milestoneNext += milestoneNext < 100 ? 25 : 50;
+    }
+
+    // Near-miss bonus (wall proximity)
+    nearMissTimer = Math.max(0, nearMissTimer - dt);
+    if (nearMissTimer <= 0) {
+        const nmB = boundsAt(scrollX + PX);
+        const nmC = Math.min(py - PR - nmB.top, nmB.bot - (py + PR));
+        if (nmC >= 0 && nmC < PR * 2.0) {
+            bonusScore++;
+            nearMissTimer = 1.5;
+            notifs.push({ x: PX + W*0.07, y: py - H*0.05, life: 1.0, text: '+CLOSE', color: [255,160,60] });
+            sfxNearMiss();
+        }
+    }
+
+    // Coin combo timer decay
+    coinComboTimer = Math.max(0, coinComboTimer - dt);
+    if (coinComboTimer <= 0) coinCombo = 0;
+
+    // Milestone flash decay
+    milestoneFlash = Math.max(0, milestoneFlash - dt * 1.6);
 
     // Trail
     trailY.push(py);
@@ -737,6 +831,8 @@ function die() {
     }
     thrustOff();
     phase = 'dead'; deadT = 0; flashA = 1.0; shake = 14; holding = false;
+    prevRunScore = lastRunScore;
+    lastRunScore = score;
     newBest = score > best;
     if (newBest) { best = score; localStorage.setItem('tunnel_best', best); }
     // Record a death marker on the nearest wall
@@ -1135,9 +1231,13 @@ function draw() {
     ctx.textBaseline = 'top';
 
     if (phase === 'play') {
-        ctx.font      = `bold ${W*0.085}px 'Courier New',monospace`;
-        ctx.fillStyle = 'rgba(215,235,255,0.88)';
+        const nearPB = best > 0 && score >= best - 5;
+        ctx.font        = `bold ${W*0.085}px 'Courier New',monospace`;
+        ctx.fillStyle   = nearPB ? 'rgba(255,230,80,0.96)' : 'rgba(215,235,255,0.88)';
+        ctx.shadowColor = nearPB ? 'rgba(255,200,40,0.80)' : 'transparent';
+        ctx.shadowBlur  = nearPB ? 18 : 0;
         ctx.fillText(score, W/2, H*0.03);
+        ctx.shadowBlur  = 0;
     }
 
     if (best > 0 && phase === 'play') {
@@ -1170,6 +1270,20 @@ function draw() {
         ctx.fillRect(W*0.225, barY, barW, barH);
     }
 
+    // Milestone flash
+    if (milestoneFlash > 0 && phase === 'play') {
+        const mfa = milestoneFlash;
+        ctx.save();
+        ctx.textAlign    = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.font         = `bold ${W*0.11}px 'Courier New',monospace`;
+        ctx.fillStyle    = `rgba(255,225,65,${mfa})`;
+        ctx.shadowColor  = `rgba(255,180,0,${mfa * 0.9})`;
+        ctx.shadowBlur   = 28;
+        ctx.fillText(milestoneText, W/2, H * 0.28);
+        ctx.shadowBlur   = 0;
+        ctx.restore();
+    }
 
     if (phase === 'title') {
         ctx.textBaseline = 'middle';
@@ -1233,6 +1347,14 @@ function draw() {
             ctx.font      = `${W*0.024}px 'Courier New',monospace`;
             ctx.fillStyle = `rgba(160,185,255,${a*0.90})`;
             ctx.fillText(`best  ${best}`, W/2, H/2 + H*0.08);
+        }
+
+        if (prevRunScore > 0 && score !== prevRunScore) {
+            const diff = score - prevRunScore;
+            const sign = diff > 0 ? '+' : '';
+            ctx.font      = `${W*0.022}px 'Courier New',monospace`;
+            ctx.fillStyle = `rgba(${diff >= 0 ? '130,220,130' : '210,130,130'},${a*0.80})`;
+            ctx.fillText(`${sign}${diff} vs last`, W/2, H/2 + H*0.125);
         }
 
         if (deadT > 0.9) {

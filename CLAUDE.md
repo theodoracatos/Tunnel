@@ -72,12 +72,38 @@ const GAP_DECAY     = H * 0.010;   // ~2.5s per coin at constant decay rate
 Wall glow shifts purple → cyan when bonus is active. Gold bar at bottom shows remaining bonus.
 
 ### Difficulty scaling functions
+
+Two-phase difficulty system:
+- `_prog  = Math.min(scrollX / 10000, 1)` - main ramp, 0→1 over first 10000px (~score 167)
+- `_prog2 = Math.min(Math.max(scrollX - 10000, 0) / 40000, 1)` - inferno, 0→1 from 10000→50000px
+
 ```javascript
-scrollSpd()    // 200 → 560 px/s
-stalSpacing()  // 260 → 100 px between stalactites
-stalLenFrac()  // 0.36 → 0.60 fraction of halfGap
-coinSpacing()  // 360 → 175 px between coins
+scrollSpd()    // 200 → 560 → 700 px/s
+stalSpacing()  // 260 → 100 → 70 px between stalactites
+stalLenFrac()  // 0.36 → 0.50 → 0.60 fraction of halfGap (also the max cap)
+coinSpacing()  // 600 → 320 → 230 px between coins
+chicaneProb    // 0 → 0.24 → 0.42 probability of paired stalactites
 ```
+
+At full inferno (scrollX=50000, dist score ~833): chicane min passable gap = 44px (player dia=21.6px).
+With gapBonus maxed (+36px): effective chicane gap ~116px - coins remain crucial at high difficulty.
+
+### Addictive systems
+
+**Score formula**: `score = Math.floor(scrollX / 60) + bonusScore`
+`bonusScore` accumulates from coin collection and near-miss bonuses; resets each run.
+
+**Milestone moments**: Triggers at 25, 50, 75, 100, 150, 200, 250... (steps of 25 below 100, then 50).
+Shows big floating text + gold particle burst + ascending chord. `milestoneFlash` decays over ~0.6s.
+
+**Near-miss bonus**: +1 bonusScore when wall clearance < `PR * 2.0` (within 2 player radii of wall).
+1.5s cooldown prevents spam. Shows "+CLOSE" notif + quick ascending ping sfx.
+
+**Coin combo multiplier**: Coins collected within 2s of each other build a streak.
+Score pts = `coinCombo * 3` (so x1=+3, x2=+6, x3=+9...). Shows "x2", "x3" notif above gold coin notif.
+Blue/red coins join the streak but their notif doesn't change (power-up is the reward).
+
+**Death screen context**: Shows "+X vs last" / "-X vs last" after the second run. Uses `prevRunScore` (run before the current one). Score number glows gold when within 5 of personal best.
 
 ## Key design decisions (do not revert)
 
