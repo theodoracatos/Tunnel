@@ -49,7 +49,9 @@ Two overlapping sin waves, amplitude and frequency scale with difficulty (`_prog
 `_prog = Math.min(scrollX / 10000, 1)` - reaches max difficulty at 10000 world px (~score 167).
 
 ```javascript
-_halfGap = lerp(H * 0.21,  H * 0.092, _prog);  // 126→55px half-gap
+_halfGap = lerp(H * 0.27,  H * 0.092, _prog);  // 162→55px half-gap (rendering/collision)
+// Note: boundsBase() for placement uses halfGapAt() = lerp(H*0.21, H*0.092, ...) = 126→55px
+// The rendering corridor is wider than the placement bounds early on, giving extra wall margin.
 _wA1     = lerp(H * 0.07,  H * 0.12,  _prog);   // wave amplitude 1
 _wA2     = lerp(H * 0.035, H * 0.055, _prog);   // wave amplitude 2
 _wF1     = lerp(0.0025,    0.0048,    _prog);    // wave frequency 1

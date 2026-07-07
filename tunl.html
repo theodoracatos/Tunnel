@@ -169,6 +169,7 @@ let prevRunScore, lastRunScore;
 let milestoneFlash, milestoneText;
 let followerActive, followerGap, followerY, followerFade, followerRespawnTimer, followerPulseTimer, followerLifeTimer;
 let gtime = 0;
+let skinFx = [], skinFxT = 0;
 let ambParts = [];
 let deathMarkers = [];   // persists across runs: { wx, wallY }
 const MAX_DEATH_MARKERS = 25;
@@ -189,6 +190,7 @@ function titleScreen() {
     phase = 'title'; py = H / 2; vy = 0; holding = false; scrollX = 0;
     score = 0; newBest = false;
     parts = []; thrustParts = []; deadT = 0; flashA = 0; shake = 0; trailY = [];
+    skinFx = []; skinFxT = 0;
     stalactites = []; nextStalWx = 99999;
     coins = [];     nextCoinWx = 99999;
     chicaneCoins = [];
@@ -206,6 +208,7 @@ function startPlay() {
     phase = 'play'; py = H / 2; vy = 0; holding = false; scrollX = 0;
     score = 0; newBest = false;
     parts = []; thrustParts = []; deadT = 0; flashA = 0; shake = 0; trailY = [];
+    skinFx = []; skinFxT = 0;
     stalactites = []; nextStalWx = 420;
     coins = [];     nextCoinWx = 500;
     chicaneCoins = [];
@@ -918,6 +921,43 @@ function update(dt) {
 
     // Milestone flash decay
     milestoneFlash = Math.max(0, milestoneFlash - dt * 1.6);
+
+    // Per-skin ambient effects (play only)
+    if (phase === 'play') {
+        skinFxT += dt;
+        // AMBER (1): lazy golden embers drift back from engine
+        if (activeSkin === 1 && Math.random() < dt * 7) {
+            skinFx.push({ t: 0, x: PX - PR*(0.6+Math.random()*0.8), y: py+(Math.random()-0.5)*PR*1.2,
+                          vx: -(18+Math.random()*55), vy: -(15+Math.random()*35), life: 1, r: 1.2+Math.random()*2.0 });
+        }
+        // CRIMSON (2): red shockwave ring every ~0.65s
+        if (activeSkin === 2 && skinFxT > 0.65) {
+            skinFxT = 0;
+            skinFx.push({ t: 1, x: PX, y: py, r: PR * 1.2, life: 1 });
+        }
+        // ELECTRIC (3): crackle bolt every ~0.07s
+        if (activeSkin === 3 && skinFxT > 0.07) {
+            skinFxT = 0;
+            for (let i = 0; i < 2; i++) {
+                skinFx.push({ t: 2, life: 1, s0: Math.random(), s1: Math.random(), s2: Math.random(), s3: Math.random() });
+            }
+        }
+        // TOXIC (4): green drips fall from ship belly
+        if (activeSkin === 4 && Math.random() < dt * 5) {
+            skinFx.push({ t: 3, x: PX+(Math.random()-0.5)*PR*1.6, y: py+PR*0.5,
+                          vx: (Math.random()-0.5)*18, vy: 55+Math.random()*90, life: 1, r: 1.8+Math.random()*2.2 });
+        }
+        // Advance all skinFx
+        for (let i = skinFx.length-1; i >= 0; i--) {
+            const f = skinFx[i];
+            const decay = f.t === 1 ? 2.0 : f.t === 2 ? 10 : 2.2;
+            f.life -= dt * decay;
+            if (f.t === 0) { f.x += f.vx*dt; f.y += f.vy*dt; f.vy += 45*dt; }
+            if (f.t === 1) { f.r  += PR * 10 * dt; }
+            if (f.t === 3) { f.x += f.vx*dt; f.y += f.vy*dt; f.r = Math.max(f.r - dt*3, 0.3); }
+            if (f.life <= 0) skinFx.splice(i, 1);
+        }
+    }
 
     // Trail
     trailY.push(py);
@@ -1754,6 +1794,97 @@ function draw() {
         ctx.fill();
         ctx.shadowBlur  = 0;
         ctx.restore();
+    }
+
+    // Per-skin ambient effects (draw)
+    if (phase === 'play') {
+        // PEARL (0): prismatic star sparkles orbit the ship
+        if (activeSkin === 0) {
+            for (let i = 0; i < 4; i++) {
+                const phase2 = i * 1.571;
+                const a = 0.25 + 0.25 * Math.sin(gtime * 3.7 + phase2 * 2.1);
+                if (a < 0.04) continue;
+                const ang  = gtime * 0.9 + phase2;
+                const dist = PR * (1.6 + 0.4 * Math.sin(gtime * 2.3 + phase2));
+                const sx   = PX + Math.cos(ang) * dist;
+                const sy   = py  + Math.sin(ang) * dist * 0.7;
+                const size = 1.2 + 0.8 * Math.sin(gtime * 5.1 + phase2);
+                ctx.save();
+                ctx.translate(sx, sy);
+                ctx.rotate(gtime * 1.5 + phase2);
+                ctx.beginPath();
+                ctx.moveTo(0, -size*1.8); ctx.lineTo(size*0.4, -size*0.4);
+                ctx.lineTo(size*1.8, 0);  ctx.lineTo(size*0.4,  size*0.4);
+                ctx.lineTo(0,  size*1.8); ctx.lineTo(-size*0.4, size*0.4);
+                ctx.lineTo(-size*1.8, 0); ctx.lineTo(-size*0.4,-size*0.4);
+                ctx.closePath();
+                ctx.fillStyle   = `rgba(210,225,255,${a})`;
+                ctx.shadowColor = `rgba(180,200,255,${a})`;
+                ctx.shadowBlur  = 6;
+                ctx.fill();
+                ctx.shadowBlur  = 0;
+                ctx.restore();
+            }
+        }
+        for (const f of skinFx) {
+            const a = Math.max(f.life, 0);
+            if (f.t === 0) {
+                // AMBER: golden ember
+                const g = Math.floor(140 + 80 * f.life);
+                ctx.beginPath();
+                ctx.arc(f.x, f.y, Math.max(f.r * f.life, 0.3), 0, Math.PI*2);
+                ctx.fillStyle   = `rgba(255,${g},15,${a * 0.85})`;
+                ctx.shadowColor = `rgba(255,160,10,${a * 0.6})`;
+                ctx.shadowBlur  = 5;
+                ctx.fill();
+                ctx.shadowBlur  = 0;
+            } else if (f.t === 1) {
+                // CRIMSON: expanding shockwave ring
+                ctx.beginPath();
+                ctx.arc(f.x, f.y, f.r, 0, Math.PI*2);
+                ctx.strokeStyle = `rgba(255,25,55,${a * 0.85})`;
+                ctx.lineWidth   = 2.5 * a;
+                ctx.shadowColor = `rgba(255,0,40,${a * 0.7})`;
+                ctx.shadowBlur  = 10;
+                ctx.stroke();
+                ctx.shadowBlur  = 0;
+            } else if (f.t === 2) {
+                // ELECTRIC: jagged lightning arc
+                const fromWing = f.s0 > 0.5;
+                const bx0 = PX + (fromWing ? PR * (f.s0 > 0.75 ? 0.4 : -0.4) : PR * 1.3);
+                const by0 = py + (f.s1 - 0.5) * PR * 1.8;
+                const ang  = f.s2 * Math.PI * 2;
+                const len  = PR * (2.2 + f.s3 * 2.8);
+                const bx1  = bx0 + Math.cos(ang) * len;
+                const by1  = by0 + Math.sin(ang) * len;
+                const mx   = (bx0+bx1)*0.5 + (f.s1-0.5)*PR*1.8;
+                const my2  = (by0+by1)*0.5 + (f.s2-0.5)*PR*1.8;
+                ctx.lineCap     = 'round';
+                ctx.lineJoin    = 'round';
+                // glow pass
+                ctx.beginPath(); ctx.moveTo(bx0,by0); ctx.lineTo(mx,my2); ctx.lineTo(bx1,by1);
+                ctx.strokeStyle = `rgba(160,240,255,${a*0.4})`;
+                ctx.lineWidth   = 4.5;
+                ctx.shadowColor = `rgba(100,210,255,${a*0.8})`;
+                ctx.shadowBlur  = 10;
+                ctx.stroke();
+                // core
+                ctx.strokeStyle = `rgba(220,250,255,${a*0.9})`;
+                ctx.lineWidth   = 1.5;
+                ctx.shadowBlur  = 0;
+                ctx.stroke();
+                ctx.lineCap = 'butt';
+            } else if (f.t === 3) {
+                // TOXIC: drip blob
+                ctx.beginPath();
+                ctx.arc(f.x, f.y, Math.max(f.r, 0.3), 0, Math.PI*2);
+                ctx.fillStyle   = `rgba(100,255,30,${a * 0.75})`;
+                ctx.shadowColor = `rgba(80,255,20,${a * 0.5})`;
+                ctx.shadowBlur  = 6;
+                ctx.fill();
+                ctx.shadowBlur  = 0;
+            }
+        }
     }
 
     // Particles
