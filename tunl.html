@@ -42,12 +42,14 @@ const THRUST  = 1900;
 const MAX_VY  = 680;
 const RSTEP   = 3;
 
+const DEV_INVINCIBLE = false; // set true to disable all deaths (testing only)
+
 // Coin constants
 const COIN_R          = W  * 0.009;   // visual radius
 const COIN_HIT_R      = W  * 0.032;   // collection radius (generous)
-const GAP_PER_COIN    = H  * 0.025;   // bonus halfGap added per coin
-const GAP_BONUS_MAX   = H  * 0.06;    // cap: max ~36px halfGap bonus (72px full gap)
-const GAP_DECAY       = H  * 0.006;   // bonus lost per second (~4s per coin)
+const GAP_PER_COIN    = H  * 0.04;    // bonus halfGap added per coin
+const GAP_BONUS_MAX   = H  * 0.10;    // cap: max halfGap bonus
+const GAP_DECAY       = H  * 0.010;   // bonus lost per second
 
 function lerp(a, b, t) { return a + (b - a) * Math.min(Math.max(t, 0), 1); }
 function lerpClr(a, b, t) {
@@ -75,7 +77,7 @@ let _prog, _prog2, _halfGap, _wA1, _wA2, _wF1, _wF2;
 function refreshWave() {
     _prog    = Math.min(Math.sqrt(scrollX / 14000), 1);
     _prog2   = Math.min(Math.max(scrollX - 14000, 0) / 40000, 1);
-    _halfGap = lerp(H * 0.32,  H * 0.125, _prog);
+    _halfGap = lerp(H * 0.34,  H * 0.163, _prog);
     _wA1     = lerp(H * 0.07,  H * 0.12,  _prog);
     _wA2     = lerp(H * 0.035, H * 0.055, _prog);
     _wF1     = lerp(0.0025,    0.0048,    _prog);
@@ -93,10 +95,52 @@ const MINE_R = W * 0.022;
 const SKINS = [
     { color: '#e8eeff', shadow: [210,220,255],  name: 'PEARL'                                      },
     { color: '#ffaa00', shadow: [255,155,0],    name: 'AMBER',   req: 50,  perk: 'COIN REACH +50%' },
-    { color: '#ff1a33', shadow: [255,30,55],    name: 'CRIMSON', req: 100, perk: 'WIDER CLOSE ZONE' },
-    { color: '#00ccff', shadow: [0,190,255],    name: 'ELECTRIC',req: 200, perk: 'SLOW DECAY -25%'  },
-    { color: '#99ff00', shadow: [140,255,0],    name: 'TOXIC',   req: 300, perk: 'COMBO WINDOW 3S'  },
+    { color: '#ff1a33', shadow: [255,30,55],    name: 'CRIMSON', req: 100, perk: 'SLIM HITBOX -18%'  },
+    { color: '#00ccff', shadow: [0,190,255],    name: 'ELECTRIC',req: 200, perk: 'SLOW TIME +50%'   },
+    { color: '#99ff00', shadow: [140,255,0],    name: 'TOXIC',   req: 300, perk: '2x COIN BONUS'    },
 ];
+
+// -- Daily world name -------------------------------------------------
+const WORLD_ADJ  = ['Crimson','Frozen','Ancient','Dark','Burning','Hollow','Scarlet','Azure',
+                    'Obsidian','Toxic','Golden','Crystal','Iron','Shadow','Violet','Ember',
+                    'Storm','Silent','Blazing','Neon','Jade','Cobalt','Ash','Pale','Rusted',
+                    'Glowing','Sunken','Broken','Eternal','Molten'];
+const WORLD_NOUN = ['Abyss','Depths','Hollow','Cavern','Passage','Rift','Void','Chasm',
+                    'Grotto','Descent','Labyrinth','Sanctum','Vault','Shaft','Tunnel',
+                    'Canyon','Gorge','Sinkhole','Drift','Channel','Corridor','Vein','Pit',
+                    'Basin','Keep','Ruin','Crypt','Forge','Crater','Nexus'];
+
+// Shuffled lookup table built once with a fixed seed so every adj+noun pair
+// appears exactly once per 900-day cycle in a non-sequential order.
+const _worldTable = (() => {
+    const n = WORLD_ADJ.length * WORLD_NOUN.length;
+    const arr = Array.from({ length: n }, (_, i) => i);
+    let s = 0x9e3779b9 >>> 0;
+    const r = () => {
+        s = (s + 0x6D2B79F5) >>> 0;
+        let t = Math.imul(s ^ (s >>> 15), 1 | s);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    for (let i = n - 1; i > 0; i--) {
+        const j = Math.floor(r() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+})();
+
+function dailyWorldName() {
+    const now    = new Date();
+    const epoch  = Date.UTC(2025, 0, 1);
+    const dayIdx = Math.floor((Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) - epoch) / 86400000);
+    const N    = _worldTable.length;
+    const gen  = Math.floor(dayIdx / N) + 1;
+    const slot = _worldTable[((dayIdx % N) + N) % N];
+    const name = `${WORLD_ADJ[slot % WORLD_ADJ.length]} ${WORLD_NOUN[Math.floor(slot / WORLD_ADJ.length)]}`;
+    return gen > 1 ? `${name} ${gen}` : name;
+}
+
+const WORLD_NAME = dailyWorldName();
 
 function centerAt(wx) {
     const raw = H / 2
@@ -161,6 +205,7 @@ let coins, nextCoinWx;
 let chicaneCoins;
 let gapBonus;
 let slowTime, shieldCount, shieldFlash, magnetTime;
+let bullets, bulletAmmo, bulletFireTimer;
 let mines, nextMineWx;
 let notifs;
 let bonusScore, milestoneNext, nearMissTimer, coinCombo, coinComboTimer;
@@ -196,6 +241,7 @@ function titleScreen() {
     coins = [];     nextCoinWx = 99999;
     chicaneCoins = [];
     gapBonus = 0; slowTime = 0; shieldCount = 0; shieldFlash = 0; magnetTime = 0; notifs = [];
+    bullets = []; bulletAmmo = 0; bulletFireTimer = 0;
     mines = []; nextMineWx = 99999;
     prevRunScore = 0; lastRunScore = 0; milestoneFlash = 0; milestoneText = '';
     runCoins = 0; runNearMisses = 0; runMaxCombo = 0; skinUnlockIdx = -1; shareCopied = 0;
@@ -206,14 +252,15 @@ function titleScreen() {
 
 function startPlay() {
     thrustOff();
-    phase = 'play'; py = H / 2; vy = 0; holding = false; scrollX = 0; startRamp = 0;
+    phase = 'play'; py = H + PR * 4; vy = 0; holding = false; scrollX = 0; startRamp = 0;
     score = 0; newBest = false;
     parts = []; thrustParts = []; deadT = 0; flashA = 0; shake = 0; trailY = [];
-    skinFx = []; skinFxT = 0; shipPitch = 0;
+    skinFx = []; skinFxT = 0; shipPitch = -Math.PI / 2;
     stalactites = []; nextStalWx = 420;
     coins = [];     nextCoinWx = 500;
     chicaneCoins = [];
     gapBonus = 0; slowTime = 0; shieldCount = 0; shieldFlash = 0; magnetTime = 0; notifs = [];
+    bullets = []; bulletAmmo = 0; bulletFireTimer = 0;
     mines = []; nextMineWx = 1800;
     bonusScore = 0; milestoneNext = 25; nearMissTimer = 0; coinCombo = 0; coinComboTimer = 0;
     runCoins = 0; runNearMisses = 0; runMaxCombo = 0; skinUnlockIdx = -1; shareCopied = 0;
@@ -230,7 +277,7 @@ function startPlay() {
     }
     milestoneFlash = 0; milestoneText = '';
     followerActive = false; followerGap = W * 2; followerFade = 0;
-    followerRespawnTimer = 15.0; followerPulseTimer = 0; followerLifeTimer = 0;
+    followerRespawnTimer = 0; followerPulseTimer = 0; followerLifeTimer = 0;
     const _d = new Date();
     seedRng(_d.getUTCFullYear() * 10000 + (_d.getUTCMonth() + 1) * 100 + _d.getUTCDate());
     refreshWave();
@@ -240,10 +287,9 @@ function startPlay() {
 // ── Stalactite system ─────────────────────────────────────────────────
 
 function makeStal(wx, isTop) {
-    const rawLen = _halfGap * stalLenFrac() * (0.70 + rng() * 0.60);
-    const length = Math.min(rawLen, _halfGap * stalLenFrac());
+    const length = _halfGap * stalLenFrac() * (0.70 + rng() * 0.30);
     const width  = W * lerp(0.048, 0.030, _prog);
-    return { wx, isTop, length, width };
+    return { wx, isTop, length, width, fade: 1.0, dying: false };
 }
 
 function maintainStalactites() {
@@ -312,22 +358,21 @@ function makeCoin(wx) {
     const coinY  = Math.max(lo, Math.min(hi, cy + (rng() - 0.5) * 2 * margin));
     const r = rng();
     let type = 'gold';
-    if (_prog >= 0.72) {
-        // score ~120+: all types including magnet
+    if (_prog >= 0.55) {
+        // score ~77+: all types including magnet
         const blueEnd = lerp(0.60, 0.44, _prog);
         const redEnd  = lerp(0.77, 0.61, _prog);
-        type = r < blueEnd ? 'gold' : r < redEnd ? 'blue' : r < 0.90 ? 'red' : 'green';
-    } else if (_prog >= 0.55) {
-        // score ~70-120: gold, slow, shield (no magnet yet)
-        const blueEnd = lerp(0.60, 0.44, _prog);
-        const redEnd  = lerp(0.77, 0.61, _prog);
-        type = r < blueEnd ? 'gold' : r < redEnd ? 'blue' : 'red';
-    } else if (_prog >= 0.36) {
-        // score ~30-70: gold and slow only
-        const blueEnd = lerp(0.60, 0.50, _prog);
-        type = r < blueEnd ? 'gold' : 'blue';
+        type = r < blueEnd ? 'gold' : r < redEnd ? 'blue' : r < 0.87 ? 'red' : r < 0.95 ? 'green' : 'orange';
+    } else if (_prog >= 0.38) {
+        // score ~40-77: gold, slow, shield, bullets
+        const blueEnd = lerp(0.64, 0.56, _prog);
+        const redEnd  = lerp(0.82, 0.72, _prog);
+        type = r < blueEnd ? 'gold' : r < redEnd ? 'blue' : r < 0.95 ? 'red' : 'orange';
+    } else if (_prog >= 0.22) {
+        // score ~12-40: gold and slow time only
+        type = r < 0.72 ? 'gold' : 'blue';
     }
-    // score ~0-30: gold only (type stays 'gold')
+    // score 0-12: gold only
     if (coinBlockedByStal(wx, coinY)) return null;
     return { wx, y: coinY, collected: false, type, fade: 1.0 };
 }
@@ -360,7 +405,7 @@ function checkCoinCollection() {
             runCoins++;
             if (coinCombo > runMaxCombo) runMaxCombo = coinCombo;
             if (coin.type === 'blue') {
-                slowTime = Math.min(slowTime + 4.0, 8.0);
+                slowTime = Math.min(slowTime + (activeSkin === 3 ? 6.0 : 4.0), activeSkin === 3 ? 12.0 : 8.0);
                 burstCoin(sx, coin.y, 195);
                 notifs.push({ x: sx, y: coin.y - 16, life: 1.1, text: '+SLOW',   color: [60,210,255] });
                 sfxSlow();
@@ -377,12 +422,19 @@ function checkCoinCollection() {
                 notifs.push({ x: sx, y: coin.y - 16, life: 1.1, text: '+MAGNET', color: [80,255,130] });
                 sfxMagnet();
                 window.webkit?.messageHandlers?.haptic?.postMessage('light');
+            } else if (coin.type === 'orange') {
+                bulletAmmo = Math.min(bulletAmmo + 5, 10);
+                bulletFireTimer = 0;
+                burstCoin(sx, coin.y, 28);
+                notifs.push({ x: sx, y: coin.y - 16, life: 1.1, text: '+AMMO', color: [255,150,0] });
+                sfxBulletPickup();
+                window.webkit?.messageHandlers?.haptic?.postMessage('light');
             } else {
-                gapBonus = Math.min(GAP_BONUS_MAX, gapBonus + GAP_PER_COIN);
+                gapBonus = Math.min(GAP_BONUS_MAX, gapBonus + GAP_PER_COIN * (activeSkin === 4 ? 2 : 1));
                 burstCoin(sx, coin.y, 44);
                 notifs.push({ x: sx, y: coin.y - 16, life: 1.1, text: `+${pts}`, color: [255,220,55] });
                 if (coinCombo > 1) {
-                    notifs.push({ x: sx, y: coin.y - 34, life: 1.3, text: `x${coinCombo}`, color: [255,255,80] });
+                    notifs.push({ x: sx, y: coin.y - 48, life: 1.3, text: `x${coinCombo}`, color: [255,255,80] });
                     sfxCombo(coinCombo);
                 }
                 sfxCoin();
@@ -392,13 +444,72 @@ function checkCoinCollection() {
     }
 }
 
+// ── Bullet system ─────────────────────────────────────────────────────
+
+function updateBullets(dt) {
+    if (bulletAmmo > 0) {
+        bulletFireTimer = Math.max(0, bulletFireTimer - dt);
+        if (bulletFireTimer <= 0) {
+            bulletAmmo--;
+            bulletFireTimer = 0.32;
+            bullets.push({ wx: scrollX + PX + PR * 1.6, y: py });
+            sfxBulletFire();
+        }
+    }
+    const bulletSpd = scrollSpd() + 480;
+    for (let i = bullets.length - 1; i >= 0; i--) {
+        const b = bullets[i];
+        b.wx += bulletSpd * dt;
+        const bsx = b.wx - scrollX;
+        if (bsx > W + 20) { bullets.splice(i, 1); continue; }
+        let hit = false;
+        for (const s of stalactites) {
+            if (s.dying) continue;
+            if (stalHitBullet(s, bsx, b.y)) {
+                s.dying = true;
+                s.fade  = 1.0;
+                const bnd  = boundsAt(s.wx);
+                const tipY = s.isTop ? bnd.top + s.length : bnd.bot - s.length;
+                burstStalCrack(bsx, tipY);
+                sfxStalCrack();
+                window.webkit?.messageHandlers?.haptic?.postMessage('light');
+                hit = true;
+                break;
+            }
+        }
+        if (hit) bullets.splice(i, 1);
+    }
+    for (let i = stalactites.length - 1; i >= 0; i--) {
+        if (stalactites[i].dying) {
+            stalactites[i].fade = Math.max(0, stalactites[i].fade - dt * 4.5);
+            if (stalactites[i].fade <= 0) stalactites.splice(i, 1);
+        }
+    }
+}
+
+function drawBullets() {
+    for (const b of bullets) {
+        const bsx = b.wx - scrollX;
+        if (bsx < -10 || bsx > W + 10) continue;
+        ctx.save();
+        ctx.shadowColor = 'rgba(255,150,0,0.95)';
+        ctx.shadowBlur  = 14;
+        ctx.fillStyle   = '#ffaa00';
+        ctx.beginPath();
+        ctx.ellipse(bsx, b.y, 10, 3.5, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.restore();
+    }
+}
+
 // ── Mine system ───────────────────────────────────────────────────────
 
 function makeMine(wx) {
-    // Never place a mine inside a chicane (stalactites from both sides nearby)
+    // Never place a mine inside a chicane (top+bottom stalactites within 120px of each other)
     let nearTop = false, nearBot = false;
     for (const s of stalactites) {
-        if (Math.abs(s.wx - wx) > 300) continue;
+        if (Math.abs(s.wx - wx) > 120) continue;
         if (s.isTop) nearTop = true; else nearBot = true;
     }
     if (nearTop && nearBot) return null;
@@ -452,10 +563,10 @@ function inTri(px, py, ax, ay, bx, by, cx, cy) {
     return !((d1<0||d2<0||d3<0) && (d1>0||d2>0||d3>0));
 }
 
-function stalHit(s) {
+function stalHit(s, r = PR) {
     const sx = s.wx - scrollX;
     if (sx < -80 || sx > W + 80) return false;
-    const b = boundsAt(s.wx), hw = s.width / 2, r2 = PR * PR;
+    const b = boundsAt(s.wx), hw = s.width / 2, r2 = r * r;
     let ax, ay, bx2, by2, tx, ty;
     if (s.isTop) {
         ax = sx-hw; ay = b.top; bx2 = sx+hw; by2 = b.top; tx = sx; ty = b.top+s.length;
@@ -466,6 +577,23 @@ function stalHit(s) {
         || ptSeg2(PX, py, ax,  ay,  tx,  ty ) < r2
         || ptSeg2(PX, py, bx2, by2, tx,  ty ) < r2
         || ptSeg2(PX, py, ax,  ay,  bx2, by2) < r2;
+}
+
+function stalHitBullet(s, bsx, by) {
+    const sx = s.wx - scrollX;
+    if (Math.abs(sx - bsx) > s.width / 2 + 8) return false;
+    const b = boundsAt(s.wx), hw = s.width / 2;
+    let ax, ay, bx2, by2, tx, ty;
+    if (s.isTop) {
+        ax = sx-hw; ay = b.top; bx2 = sx+hw; by2 = b.top; tx = sx; ty = b.top+s.length;
+    } else {
+        ax = sx-hw; ay = b.bot; bx2 = sx+hw; by2 = b.bot; tx = sx; ty = b.bot-s.length;
+    }
+    const r2 = 36;
+    return inTri(bsx, by, ax, ay, bx2, by2, tx, ty)
+        || ptSeg2(bsx, by, ax,  ay,  tx,  ty ) < r2
+        || ptSeg2(bsx, by, bx2, by2, tx,  ty ) < r2
+        || ptSeg2(bsx, by, ax,  ay,  bx2, by2) < r2;
 }
 
 // ── Particles ─────────────────────────────────────────────────────────
@@ -485,6 +613,16 @@ function burstCoin(x, y, baseHue = 44) {
         const v = 70 + Math.random() * 110;
         parts.push({ x, y, vx: Math.cos(a)*v, vy: Math.sin(a)*v,
                      life: 0.75, r: 1.2+Math.random()*2.5, h: baseHue+Math.random()*20 });
+    }
+}
+
+// Stalactite destruction debris
+function burstStalCrack(x, y) {
+    for (let i = 0; i < 22; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const v = 60 + Math.random() * 200;
+        parts.push({ x, y, vx: Math.cos(a)*v, vy: Math.sin(a)*v,
+                     life: 0.5 + Math.random() * 0.4, r: 2 + Math.random() * 3.5, h: 25 + Math.random() * 20 });
     }
 }
 
@@ -720,6 +858,48 @@ function sfxFollowerPulse() {
     o.start(t); o.stop(t + 0.24);
 }
 
+function sfxBulletPickup() {
+    if (!_ac || !fxOn) return;
+    const t = _ac.currentTime;
+    [440, 660, 990].forEach((freq, i) => {
+        const o = _ac.createOscillator(), g = _ac.createGain();
+        o.connect(g); g.connect(_ac.destination);
+        o.type = 'square';
+        const t0 = t + i * 0.055;
+        o.frequency.value = freq;
+        g.gain.setValueAtTime(0.07, t0);
+        g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.13);
+        o.start(t0); o.stop(t0 + 0.14);
+    });
+}
+
+function sfxBulletFire() {
+    if (!_ac || !fxOn) return;
+    const t = _ac.currentTime;
+    const o = _ac.createOscillator(), g = _ac.createGain();
+    o.connect(g); g.connect(_ac.destination);
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(520, t);
+    o.frequency.exponentialRampToValueAtTime(140, t + 0.09);
+    g.gain.setValueAtTime(0.07, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.11);
+    o.start(t); o.stop(t + 0.12);
+}
+
+function sfxStalCrack() {
+    if (!_ac || !fxOn) return;
+    const t = _ac.currentTime;
+    const src = _ac.createBufferSource();
+    src.buffer = _noiseBuf(0.22);
+    const flt = _ac.createBiquadFilter();
+    flt.type = 'highpass'; flt.frequency.value = 1400;
+    const g = _ac.createGain();
+    g.gain.setValueAtTime(0.38, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.20);
+    src.connect(flt); flt.connect(g); g.connect(_ac.destination);
+    src.start(t); src.stop(t + 0.22);
+}
+
 function thrustOn() {
     if (!_ac || _tNode || !fxOn) return;
     const src = _ac.createBufferSource();
@@ -848,17 +1028,21 @@ function update(dt) {
         if (p.life <= 0) thrustParts.splice(i, 1);
     }
     if (holding && phase === 'play') {
-        for (let i = 0; i < 3; i++) {
-            const spread = (Math.random() - 0.5) * PR * 1.4;
-            thrustParts.push({
-                x:    PX - PR * 0.85 + (Math.random() - 0.5) * PR * 0.4,
-                y:    py + spread,
-                vx:   -(90 + Math.random() * 170),
-                vy:   spread * 3.5 + (Math.random() - 0.5) * 25,
-                life: 0.6 + Math.random() * 0.3,
-                r:    1.0 + Math.random() * 2.4,
-                h:    18 + Math.random() * 38,
-            });
+        for (const ns of [-1, 1]) {
+            const ey = py + ns * PR * 0.50;
+            for (let i = 0; i < 4; i++) {
+                const spread = (Math.random() - 0.5) * PR * 0.13;
+                const blue   = Math.random() < 0.35;
+                thrustParts.push({
+                    x:    PX - PR * 0.74,
+                    y:    ey + spread,
+                    vx:   -(280 + Math.random() * 480),
+                    vy:   spread * 1.8 + (Math.random() - 0.5) * 8,
+                    life: 0.35 + Math.random() * 0.45,
+                    r:    1.8 + Math.random() * 3.0,
+                    h:    blue ? 215 + Math.random() * 35 : 15 + Math.random() * 45,
+                });
+            }
         }
     }
 
@@ -894,8 +1078,31 @@ function update(dt) {
         return;
     }
 
-    // Ease scroll speed 0→full over 1s so obstacles arrive gradually
-    if (startRamp < 1) startRamp = Math.min(startRamp + dt, 1);
+    // Launch animation: ship rises from below and rotates to horizontal over 1.3s
+    if (startRamp < 1) {
+        startRamp = Math.min(startRamp + dt / 1.3, 1);
+        const et  = startRamp * startRamp * (3 - 2 * startRamp); // smoothstep
+        py        = lerp(H + PR * 4, H / 2, et);
+        vy        = 0;
+        shipPitch = lerp(-Math.PI / 2, 0, et);
+        // Exhaust particles firing downward (ship is pointing up)
+        for (let i = 0; i < 3; i++) {
+            const sp = (Math.random() - 0.5) * PR * 1.4;
+            thrustParts.push({
+                x: PX + sp,  y: py + PR * 0.85 + (Math.random() - 0.5) * PR * 0.4,
+                vx: sp * 3.5 + (Math.random() - 0.5) * 25,  vy: 90 + Math.random() * 170,
+                life: 0.6 + Math.random() * 0.3,  r: 1.0 + Math.random() * 2.4,
+                h: 18 + Math.random() * 38,
+            });
+        }
+        // Tunnel starts scrolling only in the last 15% of launch
+        const lf = Math.max(0, (startRamp - 0.85) / 0.15);
+        scrollX += scrollSpd() * lf * lf * dt;
+        refreshWave();
+        score = Math.floor(scrollX / 60) + bonusScore;
+        maintainStalactites(); maintainCoins(); maintainMines();
+        return;
+    }
 
     // Physics
     vy += (holding ? -THRUST + GRAVITY : GRAVITY) * dt;
@@ -903,12 +1110,12 @@ function update(dt) {
     py += vy * dt;
 
     // Gap bonus / slow / magnet decay
-    gapBonus   = Math.max(0, gapBonus   - GAP_DECAY * dt * (activeSkin === 3 ? 0.75 : 1.0));
+    gapBonus   = Math.max(0, gapBonus   - GAP_DECAY * dt);
     slowTime   = Math.max(0, slowTime   - dt);
     magnetTime = Math.max(0, magnetTime - dt);
 
     // Scroll + score
-    const spd = scrollSpd() * (startRamp * startRamp) * (slowTime > 0 && !followerActive ? 0.60 : 1.0);
+    const spd = scrollSpd() * (slowTime > 0 && !followerActive ? 0.60 : 1.0);
     scrollX += spd * dt;
     refreshWave();
     score = Math.floor(scrollX / 60) + bonusScore;
@@ -940,39 +1147,41 @@ function update(dt) {
     // Milestone flash decay
     milestoneFlash = Math.max(0, milestoneFlash - dt * 1.6);
 
-    // Per-skin ambient effects (play only)
+    // Per-skin effects - only spawn while holding, clear timer when released
     if (phase === 'play') {
-        skinFxT += dt;
-        // AMBER (1): lazy golden embers drift back from engine
-        if (activeSkin === 1 && Math.random() < dt * 7) {
-            skinFx.push({ t: 0, x: PX - PR*(0.6+Math.random()*0.8), y: py+(Math.random()-0.5)*PR*1.2,
-                          vx: -(18+Math.random()*55), vy: -(15+Math.random()*35), life: 1, r: 1.2+Math.random()*2.0 });
-        }
-        // CRIMSON (2): red shockwave ring every ~0.65s
-        if (activeSkin === 2 && skinFxT > 0.65) {
-            skinFxT = 0;
-            skinFx.push({ t: 1, x: PX, y: py, r: PR * 1.2, life: 1 });
-        }
-        // ELECTRIC (3): crackle bolt every ~0.07s
-        if (activeSkin === 3 && skinFxT > 0.07) {
-            skinFxT = 0;
-            for (let i = 0; i < 2; i++) {
+        if (holding) {
+            skinFxT += dt;
+            // AMBER (1): small embers from engine
+            if (activeSkin === 1 && Math.random() < dt * 4) {
+                skinFx.push({ t: 0, x: PX - PR*(0.5+Math.random()*0.5), y: py+(Math.random()-0.5)*PR*0.8,
+                              vx: -(10+Math.random()*30), vy: -(8+Math.random()*20), life: 1, r: 0.7+Math.random()*1.1 });
+            }
+            // CRIMSON (2): small shockwave ring every ~0.45s
+            if (activeSkin === 2 && skinFxT > 0.45) {
+                skinFxT = 0;
+                skinFx.push({ t: 1, x: PX, y: py, r: PR * 0.8, life: 1 });
+            }
+            // ELECTRIC (3): short crackle bolt every ~0.10s
+            if (activeSkin === 3 && skinFxT > 0.10) {
+                skinFxT = 0;
                 skinFx.push({ t: 2, life: 1, s0: Math.random(), s1: Math.random(), s2: Math.random(), s3: Math.random() });
             }
+            // TOXIC (4): small drips from belly
+            if (activeSkin === 4 && Math.random() < dt * 3) {
+                skinFx.push({ t: 3, x: PX+(Math.random()-0.5)*PR*1.0, y: py+PR*0.4,
+                              vx: (Math.random()-0.5)*10, vy: 40+Math.random()*55, life: 1, r: 1.0+Math.random()*1.2 });
+            }
+        } else {
+            skinFxT = 0;
         }
-        // TOXIC (4): green drips fall from ship belly
-        if (activeSkin === 4 && Math.random() < dt * 5) {
-            skinFx.push({ t: 3, x: PX+(Math.random()-0.5)*PR*1.6, y: py+PR*0.5,
-                          vx: (Math.random()-0.5)*18, vy: 55+Math.random()*90, life: 1, r: 1.8+Math.random()*2.2 });
-        }
-        // Advance all skinFx
+        // Advance existing particles
         for (let i = skinFx.length-1; i >= 0; i--) {
             const f = skinFx[i];
-            const decay = f.t === 1 ? 2.0 : f.t === 2 ? 10 : 2.2;
+            const decay = f.t === 1 ? 3.5 : f.t === 2 ? 14 : 2.8;
             f.life -= dt * decay;
-            if (f.t === 0) { f.x += f.vx*dt; f.y += f.vy*dt; f.vy += 45*dt; }
-            if (f.t === 1) { f.r  += PR * 10 * dt; }
-            if (f.t === 3) { f.x += f.vx*dt; f.y += f.vy*dt; f.r = Math.max(f.r - dt*3, 0.3); }
+            if (f.t === 0) { f.x += f.vx*dt; f.y += f.vy*dt; f.vy += 30*dt; }
+            if (f.t === 1) { f.r  += PR * 6 * dt; }
+            if (f.t === 3) { f.x += f.vx*dt; f.y += f.vy*dt; }
             if (f.life <= 0) skinFx.splice(i, 1);
         }
     }
@@ -1006,14 +1215,16 @@ function update(dt) {
         }
     }
 
-    // Wall + stalactite collision
-    for (const dx of [-PR * 0.7, 0, PR * 0.7]) {
+    // Wall + stalactite collision (CRIMSON has a slimmer hitbox)
+    const cPR = activeSkin === 2 ? PR * 0.82 : PR;
+    for (const dx of [-cPR * 0.7, 0, cPR * 0.7]) {
         const b = boundsAt(scrollX + PX + dx);
-        if (py - PR < b.top || py + PR > b.bot) { if (die()) return; break; }
+        if (py - cPR < b.top || py + cPR > b.bot) { if (die()) return; break; }
     }
-    if (py - PR < 0 || py + PR > H) { if (die()) return; }
+    if (py - cPR < 0 || py + cPR > H) { if (die()) return; }
     for (const s of stalactites) {
-        if (stalHit(s)) { if (die()) return; break; }
+        if (s.dying) continue;
+        if (stalHit(s, cPR)) { if (die()) return; break; }
     }
 
     // Mine collision
@@ -1057,8 +1268,11 @@ function update(dt) {
     // Coin collection
     checkCoinCollection();
 
-    // Follower - only active once difficulty is past 60%
-    if (_prog >= 0.60) {
+    // Bullets
+    updateBullets(dt);
+
+    // Follower - first appears at score 100 (scrollX >= 6000)
+    if (scrollX >= 6000) {
         if (!followerActive) {
             followerRespawnTimer = Math.max(0, followerRespawnTimer - dt);
             if (followerRespawnTimer <= 0) {
@@ -1074,20 +1288,19 @@ function update(dt) {
             }
         } else {
             followerLifeTimer += dt;
-            const VISIT_DUR = 10.0;  // seconds before retreating
+            const VISIT_DUR = 3.0;  // seconds before retreating
             const retreating = followerLifeTimer > VISIT_DUR && slowTime <= 0;
-            // Fade in on entry, fade out on retreat
-            followerFade += (retreating ? -0.5 : 0.7) * dt;
-            followerFade  = Math.max(0, Math.min(1, followerFade));
-            // Spring: approach on entry/visit, retreat when time's up, lunge on slow-time
-            const targetGap = slowTime > 0 ? -PR * 3 : retreating ? W * 1.5 : PR * 3;
-            const k = followerFade < 1 && !retreating ? 1.5 : slowTime > 0 ? 4.0 : retreating ? 1.2 : 0.35;
+            // Fade in on entry only - no fade out on retreat
+            followerFade = Math.min(followerFade + 0.7 * dt, 1);
+            // Spring: approach on entry/visit, drift slowly off-screen on retreat, lunge on slow-time
+            const targetGap = slowTime > 0 ? -PR * 3 : retreating ? W * 0.9 : PR * 3;
+            const k = followerFade < 1 && !retreating ? 1.5 : slowTime > 0 ? 4.0 : retreating ? 0.12 : 0.35;
             followerGap += k * (targetGap - followerGap) * dt;
-            // Deactivate once fully faded out and far enough away
-            if (retreating && followerFade <= 0) {
+            // Deactivate once drifted off-screen (gap > PX means it's left of the canvas)
+            if (retreating && followerGap >= W * 0.65) {
                 followerActive = false;
                 followerFade   = 0;
-                followerRespawnTimer = 3;
+                followerRespawnTimer = 6;
             }
 
             // Chase player Y, steering around stalactites
@@ -1171,6 +1384,7 @@ function update(dt) {
 }
 
 function die(bypassShield = false) {
+    if (DEV_INVINCIBLE) return false;
     if (!bypassShield && shieldCount > 0) {
         shieldCount--;
         shieldFlash = 1.0; shake = 8;
@@ -1244,9 +1458,9 @@ function getTheme() {
 }
 
 function drawCoinIcon(cx, cy, type, r) {
-    const isBlu = type === 'blue', isRed = type === 'red', isGrn = type === 'green';
-    const bodyClr = isBlu ? '#4dd9ff' : isRed ? '#ff5555' : isGrn ? '#50ff88' : '#ffd93d';
-    const [gr, gg, gb] = isBlu ? [60,200,255] : isRed ? [255,70,70] : isGrn ? [60,255,130] : [255,210,40];
+    const isBlu = type === 'blue', isRed = type === 'red', isGrn = type === 'green', isOrng = type === 'orange';
+    const bodyClr = isBlu ? '#4dd9ff' : isRed ? '#ff5555' : isGrn ? '#50ff88' : isOrng ? '#ff9900' : '#ffd93d';
+    const [gr, gg, gb] = isBlu ? [60,200,255] : isRed ? [255,70,70] : isGrn ? [60,255,130] : isOrng ? [255,150,0] : [255,210,40];
     ctx.beginPath();
     ctx.arc(cx, cy, r, 0, Math.PI*2);
     ctx.fillStyle   = bodyClr;
@@ -1263,15 +1477,82 @@ function drawCoinIcon(cx, cy, type, r) {
 // ── Draw helpers ──────────────────────────────────────────────────────
 
 function shipPath(x, y, r) {
-    // Angular spaceship: pointed nose, swept wings, tail notch
+    // SR-71 Blackbird: needle nose, slim chined fuselage blending into large
+    // 60-deg delta, outward-canted twin tails (nacelles drawn separately in drawShip)
     ctx.beginPath();
-    ctx.moveTo(x + r * 1.5,  y);           // nose
-    ctx.lineTo(x - r * 0.5,  y - r);       // top wing tip
-    ctx.lineTo(x - r * 0.9,  y - r * 0.3); // tail top
-    ctx.lineTo(x - r * 0.4,  y);           // tail notch (indent)
-    ctx.lineTo(x - r * 0.9,  y + r * 0.3); // tail bottom
-    ctx.lineTo(x - r * 0.5,  y + r);       // bottom wing tip
+    ctx.moveTo(x + r*1.72,  y);               // needle nose (very long)
+    ctx.lineTo(x + r*1.12,  y - r*0.17);      // forward chine
+    ctx.lineTo(x + r*0.38,  y - r*0.22);      // chine / delta blend
+    ctx.lineTo(x - r*0.65,  y - r*0.92);      // top wing tip
+    ctx.lineTo(x - r*1.08,  y - r*0.22);      // top trailing edge
+    ctx.lineTo(x - r*1.22,  y - r*0.32);      // top tail fin tip (canted outboard)
+    ctx.lineTo(x - r*1.05,  y - r*0.08);      // top tail base
+    ctx.lineTo(x - r*0.92,  y);               // tail center notch
+    ctx.lineTo(x - r*1.05,  y + r*0.08);      // bottom tail base
+    ctx.lineTo(x - r*1.22,  y + r*0.32);      // bottom tail fin tip
+    ctx.lineTo(x - r*1.08,  y + r*0.22);      // bottom trailing edge
+    ctx.lineTo(x - r*0.65,  y + r*0.92);      // bottom wing tip
+    ctx.lineTo(x + r*0.38,  y + r*0.22);      // chine / delta blend
+    ctx.lineTo(x + r*1.12,  y + r*0.17);      // forward chine
     ctx.closePath();
+}
+
+function drawShip(x, y, r, color, sr, sg, sb, blur) {
+    blur = blur === undefined ? 20 : blur;
+
+    // Base fill with glow
+    shipPath(x, y, r);
+    ctx.fillStyle   = color;
+    ctx.shadowColor = `rgba(${sr},${sg},${sb},0.95)`;
+    ctx.shadowBlur  = blur;
+    ctx.fill();
+    ctx.shadowBlur  = 0;
+
+    // Shading overlay: bright at nose, darker at tail
+    shipPath(x, y, r);
+    const bodyGrd = ctx.createLinearGradient(x + r*1.72, y, x - r*1.22, y);
+    bodyGrd.addColorStop(0,   'rgba(255,255,255,0.13)');
+    bodyGrd.addColorStop(0.5, 'rgba(0,0,0,0)');
+    bodyGrd.addColorStop(1,   'rgba(0,0,0,0.40)');
+    ctx.fillStyle = bodyGrd;
+    ctx.fill();
+
+    // Leading edge highlight: long needle nose along chine to wing tip
+    ctx.beginPath();
+    ctx.moveTo(x + r*1.72, y);
+    ctx.lineTo(x + r*1.12, y - r*0.17);
+    ctx.lineTo(x + r*0.38, y - r*0.22);
+    ctx.lineTo(x - r*0.65, y - r*0.92);
+    ctx.strokeStyle = 'rgba(255,255,255,0.28)';
+    ctx.lineWidth   = Math.max(r * 0.09, 1);
+    ctx.lineJoin    = 'round';
+    ctx.lineCap     = 'round';
+    ctx.stroke();
+
+    // Engine nacelle pods - elongated ovals aligned to fuselage axis
+    for (const s of [-1, 1]) {
+        const nx = x - r*0.32, ny = y + s * r*0.50;
+        ctx.beginPath();
+        ctx.ellipse(nx, ny, r*0.42, r*0.115, 0, 0, Math.PI*2);
+        ctx.fillStyle = 'rgba(0,0,0,0.28)';
+        ctx.fill();
+        // Inlet cone: bright circle at forward end of nacelle
+        ctx.beginPath();
+        ctx.arc(nx + r*0.30, ny, r*0.075, 0, Math.PI*2);
+        ctx.fillStyle = 'rgba(255,255,255,0.22)';
+        ctx.fill();
+    }
+
+    // Cockpit canopy (slim, well forward on the long fuselage)
+    const cpx = x + r*1.10, cpy = y - r*0.05;
+    const cpg = ctx.createRadialGradient(cpx - r*0.08, cpy - r*0.10, 0, cpx, cpy, r*0.36);
+    cpg.addColorStop(0,   'rgba(255,255,255,0.72)');
+    cpg.addColorStop(0.4, 'rgba(190,235,255,0.38)');
+    cpg.addColorStop(1,   'rgba(120,210,255,0.04)');
+    ctx.beginPath();
+    ctx.ellipse(cpx, cpy, r*0.22, r*0.085, -0.10, 0, Math.PI*2);
+    ctx.fillStyle = cpg;
+    ctx.fill();
 }
 
 // ── Draw ──────────────────────────────────────────────────────────────
@@ -1303,48 +1584,6 @@ function draw() {
     }
     const edgeClrInner = lerpClr(theme.wall, theme.wallBase, 0.28);
 
-    // Stalactite bodies - drawn before walls so the wall fill covers the base join
-    for (const s of stalactites) {
-        const sx = s.wx - scrollX;
-        if (sx < -70 || sx > W+70) continue;
-        const b = boundsAt(s.wx), hw = s.width / 2;
-        const tipY  = s.isTop ? b.top + s.length : b.bot - s.length;
-        const baseY = s.isTop ? b.top - 8 : b.bot + 8;
-        const cp1y  = s.isTop ? b.top + s.length * 0.45 : b.bot - s.length * 0.45;
-        const cp2y  = s.isTop ? b.top + s.length * 0.88 : b.bot - s.length * 0.88;
-        const stalTipClr = lerpClr(theme.stal, theme.stalEdge, 0.38);
-
-        let stalGrd;
-        if (s.isTop) {
-            stalGrd = ctx.createLinearGradient(sx, baseY, sx, tipY);
-            stalGrd.addColorStop(0, rgb(theme.stal));
-            stalGrd.addColorStop(1, rgb(stalTipClr));
-        } else {
-            stalGrd = ctx.createLinearGradient(sx, tipY, sx, baseY);
-            stalGrd.addColorStop(0, rgb(stalTipClr));
-            stalGrd.addColorStop(1, rgb(theme.stal));
-        }
-
-        ctx.beginPath();
-        ctx.moveTo(sx - hw, baseY);
-        ctx.lineTo(sx + hw, baseY);
-        ctx.bezierCurveTo(sx + hw, cp1y,  sx + hw * 0.08, cp2y,  sx, tipY);
-        ctx.bezierCurveTo(sx - hw * 0.08, cp2y,  sx - hw, cp1y,  sx - hw, baseY);
-        ctx.closePath();
-        ctx.fillStyle = stalGrd;
-        ctx.fill();
-
-        ctx.beginPath();
-        ctx.moveTo(sx - hw, baseY);
-        ctx.bezierCurveTo(sx - hw, cp1y,  sx - hw * 0.08, cp2y,  sx, tipY);
-        ctx.bezierCurveTo(sx + hw * 0.08, cp2y,  sx + hw, cp1y,  sx + hw, baseY);
-        ctx.strokeStyle = rgb(theme.stalEdge, 0.68);
-        ctx.lineWidth = 1.5;
-        ctx.lineCap = 'butt';
-        ctx.stroke();
-        ctx.lineCap = 'round';
-    }
-
     // Top wall – dark at canvas top, accent-tinted at corridor edge
     ctx.beginPath();
     ctx.moveTo(xs[0], -2);
@@ -1370,6 +1609,60 @@ function draw() {
     botGrd.addColorStop(1,    rgb(theme.wall));
     ctx.fillStyle = botGrd;
     ctx.fill();
+
+    // Stalactite bodies - drawn before walls so the wall fill covers the base join
+    for (const s of stalactites) {
+        const sx = s.wx - scrollX;
+        if (sx < -70 || sx > W+70) continue;
+        if (s.fade <= 0) continue;
+        if (s.fade < 1.0) ctx.globalAlpha = s.fade;
+        const b  = boundsAt(s.wx), hw = s.width / 2;
+        // Sample wall height at left/right edges so the base follows the wall curve
+        const bL = s.isTop ? boundsAt(s.wx - hw).top : boundsAt(s.wx - hw).bot;
+        const bR = s.isTop ? boundsAt(s.wx + hw).top : boundsAt(s.wx + hw).bot;
+        const tipY = s.isTop ? b.top + s.length : b.bot - s.length;
+        // Control points are relative to each side's own base height
+        const lcp1y = s.isTop ? bL + s.length * 0.45 : bL - s.length * 0.45;
+        const lcp2y = s.isTop ? bL + s.length * 0.88 : bL - s.length * 0.88;
+        const rcp1y = s.isTop ? bR + s.length * 0.45 : bR - s.length * 0.45;
+        const rcp2y = s.isTop ? bR + s.length * 0.88 : bR - s.length * 0.88;
+        const stalTipClr = lerpClr(theme.stal, theme.stalEdge, 0.38);
+
+        const gradY0 = s.isTop ? Math.min(bL, bR) : Math.max(bL, bR);
+        let stalGrd;
+        if (s.isTop) {
+            stalGrd = ctx.createLinearGradient(sx, gradY0, sx, tipY);
+            stalGrd.addColorStop(0, rgb(theme.stal));
+            stalGrd.addColorStop(1, rgb(stalTipClr));
+        } else {
+            stalGrd = ctx.createLinearGradient(sx, tipY, sx, gradY0);
+            stalGrd.addColorStop(0, rgb(stalTipClr));
+            stalGrd.addColorStop(1, rgb(theme.stal));
+        }
+
+        ctx.beginPath();
+        ctx.moveTo(sx - hw, bL);
+        ctx.lineTo(sx + hw, bR);
+        ctx.bezierCurveTo(sx + hw, rcp1y,  sx + hw * 0.08, rcp2y,  sx, tipY);
+        ctx.bezierCurveTo(sx - hw * 0.08, lcp2y,  sx - hw, lcp1y,  sx - hw, bL);
+        ctx.closePath();
+        ctx.fillStyle = stalGrd;
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.moveTo(sx - hw, bL);
+        ctx.bezierCurveTo(sx - hw, lcp1y,  sx - hw * 0.08, lcp2y,  sx, tipY);
+        ctx.bezierCurveTo(sx + hw * 0.08, rcp2y,  sx + hw, rcp1y,  sx + hw, bR);
+        ctx.strokeStyle = rgb(theme.stalEdge, 0.68);
+        ctx.lineWidth = 1.5;
+        ctx.lineCap = 'butt';
+        ctx.stroke();
+        ctx.lineCap = 'round';
+        if (s.fade < 1.0) ctx.globalAlpha = 1.0;
+    }
+
+    // Bullets
+    drawBullets();
 
     // Wall edge glow – shifts from theme base → cyan when bonus is active
     const bonusT  = Math.min(gapBonus / GAP_BONUS_MAX, 1);
@@ -1543,9 +1836,9 @@ function draw() {
         ctx.globalAlpha = coin.fade;
 
         // Per-type colours
-        const isBlu = coin.type === 'blue', isRed = coin.type === 'red', isGrn = coin.type === 'green';
-        const bodyClr  = isBlu ? '#4dd9ff' : isRed ? '#ff5555' : isGrn ? '#50ff88' : '#ffd93d';
-        const glowRGBA = isBlu ? [60,200,255] : isRed ? [255,70,70] : isGrn ? [60,255,130] : [255,210,40];
+        const isBlu = coin.type === 'blue', isRed = coin.type === 'red', isGrn = coin.type === 'green', isOrng = coin.type === 'orange';
+        const bodyClr  = isBlu ? '#4dd9ff' : isRed ? '#ff5555' : isGrn ? '#50ff88' : isOrng ? '#ff9900' : '#ffd93d';
+        const glowRGBA = isBlu ? [60,200,255] : isRed ? [255,70,70] : isGrn ? [60,255,130] : isOrng ? [255,150,0] : [255,210,40];
         const [gr, gg, gb] = glowRGBA;
 
         // Pulsing glow ring
@@ -1719,16 +2012,19 @@ function draw() {
 
     // Thruster particle trail (drawn before player so it appears behind)
     for (const p of thrustParts) {
+        const a = Math.max(p.life, 0);
+        const blue = p.h > 150;
         ctx.beginPath();
-        ctx.arc(p.x, p.y, Math.max(p.r * p.life, 0.3), 0, Math.PI * 2);
-        ctx.fillStyle = `hsla(${p.h},100%,72%,${Math.max(p.life, 0)})`;
+        ctx.arc(p.x, p.y, Math.max(p.r * p.life, 0.4), 0, Math.PI * 2);
+        ctx.fillStyle = `hsla(${p.h},100%,${blue ? 68 : 84}%,${a})`;
         ctx.fill();
     }
 
     // Speed lines – horizontal streaks driven by vertical velocity OR scroll speed
     if (phase === 'play') {
         const vyFrac    = Math.max(0, (Math.abs(vy) - 300) / (MAX_VY - 300));
-        const spdFrac   = Math.max(0, (scrollSpd() - 460) / (650 - 460));
+        const actualSpd = scrollSpd() * (slowTime > 0 && !followerActive ? 0.60 : 1.0);
+        const spdFrac   = Math.max(0, (actualSpd - 460) / (650 - 460));
         const speedFrac = Math.max(vyFrac, spdFrac);
         if (speedFrac > 0.05) {
             const sk = SKINS[activeSkin] || SKINS[0];
@@ -1803,108 +2099,102 @@ function draw() {
         ctx.rotate(pitchAngle);
         ctx.translate(-PX, -py);
 
-        if (holding && phase === 'play') {
+        if ((holding || startRamp < 1) && phase === 'play') {
             const pulse = 0.75 + 0.25 * Math.sin(gtime * 22);
-            const gx = PX - PR * 0.8, gy = py;
-            const gr = ctx.createRadialGradient(gx, gy, 0, gx, gy, PR * 2.4 * pulse);
-            gr.addColorStop(0,   'rgba(255,200,70,0.9)');
-            gr.addColorStop(0.35,'rgba(255,90,20,0.45)');
-            gr.addColorStop(1,   'rgba(255,40,0,0)');
-            ctx.fillStyle = gr;
-            ctx.beginPath();
-            ctx.arc(gx, gy, PR * 2.4 * pulse, 0, Math.PI * 2);
-            ctx.fill();
+            for (const ns of [-1, 1]) {
+                const nx = PX - PR * 0.74, ny = py + ns * PR * 0.50;
+                const cLen = PR * 5.0 * pulse, cW = PR * 0.14;
+                // Afterburner cone: white-hot at nozzle -> orange -> blue-purple
+                ctx.beginPath();
+                ctx.moveTo(nx,        ny - cW);
+                ctx.lineTo(nx - cLen, ny);
+                ctx.lineTo(nx,        ny + cW);
+                ctx.closePath();
+                const lg = ctx.createLinearGradient(nx, ny, nx - cLen, ny);
+                lg.addColorStop(0,    'rgba(255,255,210,1.0)');
+                lg.addColorStop(0.12, 'rgba(255,175,30,0.90)');
+                lg.addColorStop(0.42, 'rgba(255,50,0,0.55)');
+                lg.addColorStop(0.74, 'rgba(80,30,220,0.22)');
+                lg.addColorStop(1,    'rgba(40,10,180,0)');
+                ctx.fillStyle = lg;
+                ctx.fill();
+                // Hot nozzle ring
+                const hg = ctx.createRadialGradient(nx, ny, 0, nx, ny, PR * 0.55);
+                hg.addColorStop(0, 'rgba(255,255,240,0.95)');
+                hg.addColorStop(1, 'rgba(255,150,20,0)');
+                ctx.beginPath();
+                ctx.arc(nx, ny, PR * 0.55, 0, Math.PI * 2);
+                ctx.fillStyle = hg;
+                ctx.fill();
+            }
         }
 
-        shipPath(PX, py, PR);
-        ctx.fillStyle   = phase === 'dead' ? '#ff4040' : sk.color;
-        ctx.shadowColor = `rgba(${sr},${sg},${sb},0.95)`;
-        ctx.shadowBlur  = 20;
-        ctx.fill();
-        ctx.shadowBlur  = 0;
+        drawShip(PX, py, PR, phase === 'dead' ? '#ff4040' : sk.color, sr, sg, sb, 20);
         ctx.restore();
     }
 
-    // Per-skin ambient effects (draw)
+    // Per-skin effects (draw)
     if (phase === 'play') {
-        // PEARL (0): prismatic star sparkles orbit the ship
-        if (activeSkin === 0) {
-            for (let i = 0; i < 4; i++) {
-                const phase2 = i * 1.571;
-                const a = 0.25 + 0.25 * Math.sin(gtime * 3.7 + phase2 * 2.1);
-                if (a < 0.04) continue;
-                const ang  = gtime * 0.9 + phase2;
-                const dist = PR * (1.6 + 0.4 * Math.sin(gtime * 2.3 + phase2));
-                const sx   = PX + Math.cos(ang) * dist;
-                const sy   = py  + Math.sin(ang) * dist * 0.7;
-                const size = 1.2 + 0.8 * Math.sin(gtime * 5.1 + phase2);
-                ctx.save();
-                ctx.translate(sx, sy);
-                ctx.rotate(gtime * 1.5 + phase2);
-                ctx.beginPath();
-                ctx.moveTo(0, -size*1.8); ctx.lineTo(size*0.4, -size*0.4);
-                ctx.lineTo(size*1.8, 0);  ctx.lineTo(size*0.4,  size*0.4);
-                ctx.lineTo(0,  size*1.8); ctx.lineTo(-size*0.4, size*0.4);
-                ctx.lineTo(-size*1.8, 0); ctx.lineTo(-size*0.4,-size*0.4);
-                ctx.closePath();
-                ctx.fillStyle   = `rgba(210,225,255,${a})`;
-                ctx.shadowColor = `rgba(180,200,255,${a})`;
-                ctx.shadowBlur  = 6;
+        // PEARL (0): tiny shimmer dots near nose while holding
+        if (activeSkin === 0 && holding) {
+            for (let i = 0; i < 2; i++) {
+                const a = Math.max(0, Math.sin(gtime * 9.1 + i * 2.8)) * 0.5;
+                if (a < 0.06) continue;
+                const sx = PX + PR * (0.7 + Math.sin(gtime * 1.9 + i) * 0.4);
+                const sy = py + (i === 0 ? -1 : 1) * PR * 0.5 * Math.sin(gtime * 2.5 + i);
+                ctx.beginPath(); ctx.arc(sx, sy, 1.0, 0, Math.PI*2);
+                ctx.fillStyle   = `rgba(220,235,255,${a})`;
+                ctx.shadowColor = `rgba(200,220,255,${a})`;
+                ctx.shadowBlur  = 4;
                 ctx.fill();
                 ctx.shadowBlur  = 0;
-                ctx.restore();
             }
         }
         for (const f of skinFx) {
             const a = Math.max(f.life, 0);
             if (f.t === 0) {
-                // AMBER: golden ember
-                const g = Math.floor(140 + 80 * f.life);
+                // AMBER: small golden ember
                 ctx.beginPath();
                 ctx.arc(f.x, f.y, Math.max(f.r * f.life, 0.3), 0, Math.PI*2);
-                ctx.fillStyle   = `rgba(255,${g},15,${a * 0.85})`;
-                ctx.shadowColor = `rgba(255,160,10,${a * 0.6})`;
-                ctx.shadowBlur  = 5;
+                ctx.fillStyle   = `rgba(255,${Math.floor(130 + 90*f.life)},15,${a * 0.8})`;
+                ctx.shadowColor = `rgba(255,150,10,${a * 0.5})`;
+                ctx.shadowBlur  = 4;
                 ctx.fill();
                 ctx.shadowBlur  = 0;
             } else if (f.t === 1) {
-                // CRIMSON: expanding shockwave ring
+                // CRIMSON: small expanding ring
                 ctx.beginPath();
                 ctx.arc(f.x, f.y, f.r, 0, Math.PI*2);
-                ctx.strokeStyle = `rgba(255,25,55,${a * 0.85})`;
-                ctx.lineWidth   = 2.5 * a;
-                ctx.shadowColor = `rgba(255,0,40,${a * 0.7})`;
-                ctx.shadowBlur  = 10;
+                ctx.strokeStyle = `rgba(255,25,55,${a * 0.75})`;
+                ctx.lineWidth   = 1.8 * a;
+                ctx.shadowColor = `rgba(255,0,40,${a * 0.5})`;
+                ctx.shadowBlur  = 6;
                 ctx.stroke();
                 ctx.shadowBlur  = 0;
             } else if (f.t === 2) {
-                // ELECTRIC: jagged lightning arc
-                const fromWing = f.s0 > 0.5;
-                const bx0 = PX + (fromWing ? PR * (f.s0 > 0.75 ? 0.4 : -0.4) : PR * 1.3);
-                const by0 = py + (f.s1 - 0.5) * PR * 1.8;
+                // ELECTRIC: short crackle bolt near ship surface
+                const bx0 = PX + PR * (f.s0 > 0.5 ? 1.0 : -0.3) + (f.s0 - 0.5) * PR * 0.6;
+                const by0 = py  + (f.s1 - 0.5) * PR * 1.2;
                 const ang  = f.s2 * Math.PI * 2;
-                const len  = PR * (2.2 + f.s3 * 2.8);
+                const len  = PR * (0.8 + f.s3 * 1.2);
                 const bx1  = bx0 + Math.cos(ang) * len;
                 const by1  = by0 + Math.sin(ang) * len;
-                const mx   = (bx0+bx1)*0.5 + (f.s1-0.5)*PR*1.8;
-                const my2  = (by0+by1)*0.5 + (f.s2-0.5)*PR*1.8;
-                ctx.lineCap     = 'round';
-                ctx.lineJoin    = 'round';
-                // glow pass
+                const mx   = (bx0+bx1)*0.5 + (f.s1-0.5)*PR*0.7;
+                const my2  = (by0+by1)*0.5 + (f.s2-0.5)*PR*0.7;
+                ctx.lineCap = 'round'; ctx.lineJoin = 'round';
                 ctx.beginPath(); ctx.moveTo(bx0,by0); ctx.lineTo(mx,my2); ctx.lineTo(bx1,by1);
-                ctx.strokeStyle = `rgba(160,240,255,${a*0.4})`;
-                ctx.lineWidth   = 4.5;
-                ctx.shadowColor = `rgba(100,210,255,${a*0.8})`;
-                ctx.shadowBlur  = 10;
+                ctx.strokeStyle = `rgba(160,240,255,${a*0.35})`;
+                ctx.lineWidth   = 2.5;
+                ctx.shadowColor = `rgba(100,210,255,${a*0.6})`;
+                ctx.shadowBlur  = 6;
                 ctx.stroke();
-                // core
-                ctx.strokeStyle = `rgba(220,250,255,${a*0.9})`;
-                ctx.lineWidth   = 1.5;
+                ctx.strokeStyle = `rgba(220,250,255,${a*0.85})`;
+                ctx.lineWidth   = 1.0;
                 ctx.shadowBlur  = 0;
                 ctx.stroke();
                 ctx.lineCap = 'butt';
             } else if (f.t === 3) {
-                // TOXIC: drip blob
+                // TOXIC: small drip blob
                 ctx.beginPath();
                 ctx.arc(f.x, f.y, Math.max(f.r, 0.3), 0, Math.PI*2);
                 ctx.fillStyle   = `rgba(100,255,30,${a * 0.75})`;
@@ -2022,6 +2312,22 @@ function draw() {
         ctx.fillRect(W*0.225, barY, barW, barH);
     }
 
+    // Bullet ammo dots (bottom, orange, above magnet bar)
+    if (phase === 'play' && bulletAmmo > 0) {
+        const dotR   = 4;
+        const dotY   = H * 0.910;
+        const startX = W * 0.225;
+        ctx.shadowColor = 'rgba(255,130,0,0.80)';
+        ctx.shadowBlur  = 6;
+        for (let i = 0; i < bulletAmmo; i++) {
+            ctx.beginPath();
+            ctx.arc(startX + i * (dotR * 2.8), dotY, dotR, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(255,150,0,0.85)';
+            ctx.fill();
+        }
+        ctx.shadowBlur = 0;
+    }
+
     // Milestone flash
     if (milestoneFlash > 0 && phase === 'play') {
         const mfa = milestoneFlash;
@@ -2050,6 +2356,14 @@ function draw() {
         ctx.font      = `bold ${FS*0.085}px 'Courier New',monospace`;
         ctx.fillStyle = 'rgba(195,220,255,0.97)';
         ctx.fillText('TUNL', titleX, LAND ? H * 0.26 : H/2 - H*0.10);
+
+        ctx.font      = `${FS*0.026}px 'Courier New',monospace`;
+        ctx.fillStyle = 'rgba(120,155,215,0.72)';
+        ctx.shadowColor = 'rgba(0,0,0,0.85)';
+        ctx.shadowBlur  = 4;
+        ctx.fillText(WORLD_NAME.toUpperCase(), titleX, LAND ? H * 0.385 : H/2 - H*0.038);
+        ctx.shadowBlur  = 6;
+
 
         ctx.font      = `${FS*0.030}px 'Courier New',monospace`;
         ctx.fillStyle = 'rgba(170,195,255,0.92)';
@@ -2148,12 +2462,7 @@ function draw() {
                         ctx.shadowBlur  = 0;
                         ctx.restore();
                     }
-                    shipPath(cx, dotY, dotR);
-                    ctx.fillStyle   = SKINS[i].color;
-                    ctx.shadowColor = `rgba(${sr},${sg},${sb},${selected ? 0.90 : 0.45})`;
-                    ctx.shadowBlur  = selected ? 22 : 8;
-                    ctx.fill();
-                    ctx.shadowBlur  = 0;
+                    drawShip(cx, dotY, dotR, SKINS[i].color, sr, sg, sb, selected ? 22 : 8);
                     ctx.font        = `${FS*0.016}px 'Courier New',monospace`;
                     ctx.fillStyle   = selected
                         ? `rgba(${sr},${sg},${sb},0.95)`
