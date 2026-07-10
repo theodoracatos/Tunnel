@@ -1,0 +1,51 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+}
+
+android {
+    namespace 'com.theodoracatos.tunl'
+    compileSdk 36
+
+    defaultConfig {
+        applicationId 'com.theodoracatos.tunl'
+        minSdk 21
+        targetSdk 35
+        versionCode 1
+        versionName '1.0'
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    kotlinOptions {
+        jvmTarget = '1.8'
+    }
+}
+
+// The game itself (tunl.html, src/*.js, the_mountain.mp3) lives at the repo root
+// so the web build stays a single source of truth. Copy it into assets before
+// packaging instead of duplicating it inside the Android module.
+task copyGameFiles(type: Copy) {
+    from(project.rootDir.parentFile) {
+        include 'tunl.html'
+        include 'the_mountain.mp3'
+        include 'src/**/*.js'
+    }
+    into 'src/main/assets'
+}
+preBuild.dependsOn(copyGameFiles)
+
+dependencies {
+    implementation 'androidx.core:core-ktx:1.13.1'
+    implementation 'androidx.activity:activity-ktx:1.9.3'
+    implementation 'androidx.webkit:webkit:1.12.1'
+}

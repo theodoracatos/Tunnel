@@ -1,5 +1,6 @@
 import SwiftUI
 import WebKit
+import GameKit
 
 struct GameView: UIViewRepresentable {
 
@@ -14,6 +15,9 @@ struct GameView: UIViewRepresentable {
         config.preferences.setValue(true, forKey: "allowFileAccessFromFileURLs")
 
         config.userContentController.add(context.coordinator, name: "haptic")
+        config.userContentController.add(context.coordinator, name: "gameCenter")
+
+        context.coordinator.authenticateGameCenter()
 
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.uiDelegate = context.coordinator
@@ -56,9 +60,47 @@ struct GameView: UIViewRepresentable {
 
     func updateUIView(_ webView: WKWebView, context: Context) {}
 
-    // MARK: - Haptic bridge
+    // MARK: - Haptic + Game Center bridge
 
-    class Coordinator: NSObject, WKScriptMessageHandler, WKUIDelegate, WKNavigationDelegate {
+    class Coordinator: NSObject, WKScriptMessageHandler, WKUIDelegate, WKNavigationDelegate, GKGameCenterControllerDelegate {
+
+        static let leaderboardID = "tunl_highscore"
+
+        func authenticateGameCenter() {
+            GKLocalPlayer.local.authenticateHandler = { [weak self] viewController, error in
+                if let viewController {
+                    self?.rootViewController()?.present(viewController, animated: true)
+                } else if let error {
+                    print("Game Center auth failed: \(error.localizedDescription)")
+                }
+            }
+        }
+
+        private func rootViewController() -> UIViewController? {
+            UIApplication.shared.connectedScenes
+                .compactMap { ($0 as? UIWindowScene)?.keyWindow }
+                .first?.rootViewController
+        }
+
+        private func submitScore(_ score: Int) {
+            guard GKLocalPlayer.local.isAuthenticated else { return }
+            GKLeaderboard.submitScore(score, context: 0, player: GKLocalPlayer.local,
+                                       leaderboardIDs: [Coordinator.leaderboardID]) { error in
+                if let error { print("Game Center score submit failed: \(error.localizedDescription)") }
+            }
+        }
+
+        private func showLeaderboard() {
+            guard GKLocalPlayer.local.isAuthenticated else { return }
+            let vc = GKGameCenterViewController(leaderboardID: Coordinator.leaderboardID,
+                                                 playerScope: .global, timeScope: .allTime)
+            vc.gameCenterDelegate = self
+            rootViewController()?.present(vc, animated: true)
+        }
+
+        func gameCenterViewControllerDidFinish(_ gameCenterViewController: GKGameCenterViewController) {
+            gameCenterViewController.dismiss(animated: true)
+        }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             GameView.killPressInteractions(in: webView)
@@ -78,6 +120,18 @@ struct GameView: UIViewRepresentable {
         }
         func userContentController(_ controller: WKUserContentController,
                                    didReceive message: WKScriptMessage) {
+            if message.name == "gameCenter" {
+                guard let body = message.body as? [String: Any],
+                      let action = body["action"] as? String else { return }
+                switch action {
+                case "submit":
+                    if let score = body["score"] as? Int { submitScore(score) }
+                case "show":
+                    showLeaderboard()
+                default: break
+                }
+                return
+            }
             guard message.name == "haptic", let type = message.body as? String else { return }
             switch type {
             case "heavy":   UIImpactFeedbackGenerator(style: .heavy).impactOccurred()

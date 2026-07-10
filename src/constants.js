@@ -44,10 +44,12 @@ const MINE_R = W * 0.011;
 
 const RESET_HOLD_TIME = 1.1; // seconds to hold the reset-progress button to confirm
 
+// Perk descriptions live in i18n.js (LANGS[*].skinPerks, same index order) so
+// they stay live if the player switches language without reloading.
 const SKINS = [
-    { color: '#e8eeff', shadow: [210,220,255],  name: 'PEARL'                                      },
-    { color: '#ffaa00', shadow: [255,155,0],    name: 'AMBER',   req: 100,  perk: 'COIN REACH +50%' },
-    { color: '#ff1a33', shadow: [255,30,55],    name: 'CRIMSON', req: 300, perk: 'SLIM HITBOX -18%'  },
-    { color: '#00ccff', shadow: [0,190,255],    name: 'ELECTRIC',req: 500, perk: 'SLOW TIME +50%'   },
-    { color: '#99ff00', shadow: [140,255,0],    name: 'TOXIC',   req: 1000, perk: '2x COIN BONUS'    },
+    { color: '#e8eeff', shadow: [210,220,255],  name: 'PEARL'                      },
+    { color: '#ffaa00', shadow: [255,155,0],    name: 'AMBER',   req: 100          },
+    { color: '#ff1a33', shadow: [255,30,55],    name: 'CRIMSON', req: 300          },
+    { color: '#00ccff', shadow: [0,190,255],    name: 'ELECTRIC',req: 500          },
+    { color: '#99ff00', shadow: [140,255,0],    name: 'TOXIC',   req: 1000         },
 ];

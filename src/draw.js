@@ -430,7 +430,7 @@ function draw() {
                 ctx.fillStyle   = `rgba(255,215,55,${lineA * 0.95})`;
                 ctx.textAlign   = 'center';
                 ctx.textBaseline = 'bottom';
-                ctx.fillText('PB', lx, lb.top - 5);
+                ctx.fillText(T.pb, lx, lb.top - 5);
                 ctx.textBaseline = 'top';
                 ctx.restore();
             }
@@ -890,7 +890,7 @@ function draw() {
         ctx.textAlign    = 'left';
         ctx.textBaseline = 'middle';
         ctx.fillStyle    = 'rgba(255,150,0,0.52)';
-        ctx.fillText('AMMO', startX + bulletAmmo * dotR * 2.8 + W * 0.010, dotY);
+        ctx.fillText(T.ammo, startX + bulletAmmo * dotR * 2.8 + W * 0.010, dotY);
         ctx.restore();
     }
 
@@ -1019,22 +1019,24 @@ function draw() {
         _btnMusicRect = drawBtn(musicBX, tBtnY, musicOn ? T.musicOn : T.musicOff, musicOn, false);
         _btnFxRect    = drawBtn(fxBX,    tBtnY, fxOn    ? T.fxOn    : T.fxOff,    fxOn,    false);
 
-        // Settings button (cog)
+        // Settings button -- own row below MUSIC/FX so its (localized) text
+        // label can be as wide as it needs without bumping into the info column.
+        // Paired with the Game Center leaderboard button when that native bridge exists;
+        // widths are measured first so long localized labels never overlap.
         {
-            const langBX = LAND ? titleX + W * 0.165 : W / 2;
-            const langBY = LAND ? tBtnY : tBtnY + H * 0.072;
-            ctx.font = `${FS*0.028}px -apple-system,'Helvetica Neue',Arial,sans-serif`;
-            const m  = ctx.measureText('⚙️');
-            const bw = m.width + W * 0.034, bh = H * 0.055;
-            const bx = langBX - bw / 2, by = langBY - bh / 2;
-            ctx.shadowColor = `rgba(80,130,255,${a*0.45})`; ctx.shadowBlur = 8;
-            ctx.fillStyle   = `rgba(14,26,62,${a*0.82})`;
-            ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 5); ctx.fill();
-            ctx.strokeStyle = `rgba(90,140,255,${a*0.65})`;
-            ctx.lineWidth   = 1; ctx.shadowBlur = 0; ctx.stroke();
-            ctx.fillStyle   = `rgba(140,175,255,${a})`;
-            ctx.fillText('⚙️', langBX, langBY);
-            _settingsBtnRect = { x: bx, y: by, w: bw, h: bh };
+            const settingsBY = tBtnY + H * 0.10;
+            const hasGameCenter = !!window.webkit?.messageHandlers?.gameCenter;
+            if (hasGameCenter) {
+                const settingsW    = ctx.measureText(T.settings).width + W*0.034;
+                const leaderboardW = ctx.measureText(T.leaderboard).width + W*0.034;
+                const rowGap = W * 0.02;
+                const settingsCX    = titleX - leaderboardW/2 - rowGap/2;
+                const leaderboardCX = titleX + settingsW/2 + rowGap/2;
+                _settingsBtnRect    = drawBtn(settingsCX, settingsBY, T.settings, true, true);
+                _leaderboardBtnRect = drawBtn(leaderboardCX, settingsBY, T.leaderboard, true, false);
+            } else {
+                _settingsBtnRect = drawBtn(titleX, settingsBY, T.settings, true, true);
+            }
         }
 
         {
@@ -1117,12 +1119,13 @@ function draw() {
                     ctx.shadowBlur  = selected ? 8 : 3;
                     ctx.fillText(SKINS[i].name, cx, dotY + dotR * 1.7);
                     ctx.shadowBlur  = 0;
-                    if (selected && SKINS[i].perk) {
+                    const perk = T.skinPerks && T.skinPerks[i];
+                    if (selected && perk) {
                         ctx.font        = `${FS*0.016}px -apple-system,'Helvetica Neue',Arial,sans-serif`;
                         ctx.fillStyle   = `rgba(${sr},${sg},${sb},0.85)`;
                         ctx.shadowColor = 'rgba(0,0,0,0.90)';
                         ctx.shadowBlur  = 4;
-                        ctx.fillText(SKINS[i].perk, cx, dotY + dotR * 2.7);
+                        ctx.fillText(perk, cx, dotY + dotR * 2.7);
                         ctx.shadowBlur  = 0;
                     }
                     ctx.font = `${FS*0.018}px 'Courier New',monospace`;
@@ -1130,15 +1133,36 @@ function draw() {
             }
         }
 
-        // Language selection panel - drawn last so it overlays everything
+        // Settings panel - drawn last so it overlays everything.
+        // Layout flows top-down from a fixed set of section heights/gaps rather
+        // than fixed fractions of panH, so it never overlaps as content grows
+        // (the old fixed-percentage layout broke once a 5th language was added).
         if (showSettings) {
             ctx.fillStyle = 'rgba(0,0,12,0.88)';
             ctx.fillRect(0, 0, W, H);
 
-            const panW = Math.min(W * 0.52, 320);
-            const panH = H * 0.95;
+            const panW = Math.min(W * 0.56, 340);
+
+            const padTop     = H * 0.060;
+            const padBottom  = H * 0.040;
+            const titleH     = H * 0.070;
+            const langLabelH = H * 0.045;
+            const lbh        = H * 0.080;
+            const lbGap      = H * 0.018;
+            const sectionGap = H * 0.045;
+            const dataLabelH = H * 0.045;
+            const rbh        = H * 0.100;
+            const hintGap    = H * 0.028;
+            const hintH      = H * 0.040;
+
+            const langCols  = 2;
+            const langRows  = Math.ceil(LANG_ORDER.length / langCols);
+            const langListH = langRows * lbh + Math.max(0, langRows - 1) * lbGap;
+            const panH = padTop + titleH + langLabelH + langListH + sectionGap
+                       + dataLabelH + sectionGap + rbh + hintGap + hintH + padBottom;
+
             const panX = W / 2 - panW / 2;
-            const panY = H / 2 - panH / 2;
+            const panY = Math.max(H * 0.02, Math.min(H * 0.98 - panH, H / 2 - panH / 2));
 
             ctx.fillStyle = 'rgba(7,10,28,0.97)';
             ctx.beginPath();
@@ -1150,62 +1174,73 @@ function draw() {
 
             ctx.textAlign    = 'center';
             ctx.textBaseline = 'middle';
-            ctx.font         = `bold ${FS * 0.030}px 'Courier New',monospace`;
-            ctx.fillStyle    = 'rgba(165,190,255,0.95)';
-            ctx.shadowColor  = 'rgba(0,0,0,0.90)';
-            ctx.shadowBlur   = 5;
-            ctx.fillText(T.settings, W / 2, panY + panH * 0.088);
-            ctx.shadowBlur   = 0;
+
+            let y = panY + padTop;
+
+            // Title
+            ctx.font        = `bold ${FS * 0.030}px 'Courier New',monospace`;
+            ctx.fillStyle   = 'rgba(165,190,255,0.95)';
+            ctx.shadowColor = 'rgba(0,0,0,0.90)';
+            ctx.shadowBlur  = 5;
+            ctx.fillText(T.settings, W / 2, y + titleH / 2);
+            ctx.shadowBlur  = 0;
+            y += titleH;
 
             // Language section label
             ctx.font      = `${FS * 0.020}px 'Courier New',monospace`;
             ctx.fillStyle = 'rgba(100,120,180,0.65)';
-            ctx.fillText(T.language, W / 2, panY + panH * 0.175);
+            ctx.fillText(T.language, W / 2, y + langLabelH / 2);
+            y += langLabelH;
 
             _langBtnRects = [];
-            const lbw  = panW * 0.78;
-            const lbh  = H * 0.090;
-            const lbx0 = W / 2 - lbw / 2;
+            const langRowW = panW * 0.80;
+            const lbw      = (langRowW - lbGap * (langCols - 1)) / langCols;
+            const lbx0     = W / 2 - langRowW / 2;
             for (let i = 0; i < LANG_ORDER.length; i++) {
                 const code   = LANG_ORDER[i];
                 const lang   = LANGS[code];
-                const lby    = panY + panH * 0.215 + i * (lbh + H * 0.018);
+                const col    = i % langCols;
+                const row    = Math.floor(i / langCols);
+                const lbx    = lbx0 + col * (lbw + lbGap);
+                const lby    = y + row * (lbh + lbGap);
                 const active = activeLang === code;
 
                 ctx.fillStyle = active ? 'rgba(28,50,90,0.88)' : 'rgba(15,18,40,0.72)';
                 ctx.beginPath();
-                ctx.roundRect(lbx0, lby, lbw, lbh, 7);
+                ctx.roundRect(lbx, lby, lbw, lbh, 7);
                 ctx.fill();
                 ctx.strokeStyle = active ? 'rgba(80,140,255,0.70)' : 'rgba(50,60,100,0.38)';
                 ctx.lineWidth   = active ? 1.5 : 1;
                 ctx.stroke();
 
-                ctx.font      = `${active ? 'bold ' : ''}${FS * 0.026}px 'Courier New',monospace`;
+                ctx.font      = `${active ? 'bold ' : ''}${FS * 0.023}px 'Courier New',monospace`;
                 ctx.fillStyle = active ? 'rgba(140,180,255,0.97)' : 'rgba(110,130,185,0.72)';
                 if (active) { ctx.shadowColor = 'rgba(80,140,255,0.55)'; ctx.shadowBlur = 10; }
-                ctx.fillText(lang.name, W / 2, lby + lbh / 2);
+                ctx.fillText(lang.name, lbx + lbw / 2, lby + lbh / 2);
                 ctx.shadowBlur = 0;
 
-                _langBtnRects.push({ x: lbx0, y: lby, w: lbw, h: lbh, code });
+                _langBtnRects.push({ x: lbx, y: lby, w: lbw, h: lbh, code });
             }
+            y += langListH + sectionGap;
 
             // Divider above reset section
             ctx.strokeStyle = 'rgba(60,70,110,0.35)';
             ctx.lineWidth   = 1;
             ctx.beginPath();
-            ctx.moveTo(panX + panW * 0.10, panY + panH - H * 0.260);
-            ctx.lineTo(panX + panW * 0.90, panY + panH - H * 0.260);
+            ctx.moveTo(panX + panW * 0.10, y);
+            ctx.lineTo(panX + panW * 0.90, y);
             ctx.stroke();
 
             // Reset section label
             ctx.font      = `${FS * 0.020}px 'Courier New',monospace`;
             ctx.fillStyle = 'rgba(100,120,180,0.65)';
-            ctx.fillText('DATA', W / 2, panY + panH - H * 0.220);
+            ctx.fillText(T.data, W / 2, y + dataLabelH / 2);
+            y += dataLabelH;
 
             // Reset progress button (hold-to-confirm)
             {
-                const rbw = panW * 0.74, rbh = H * 0.110;
-                const rbx = W / 2 - rbw / 2, rby = panY + panH - H * 0.130 - rbh / 2;
+                const rbw = panW * 0.78, rby = y;
+                const rbx = W / 2 - rbw / 2;
                 const held = resetHoldT > 0;
                 const txt  = resetFlash > 0 ? T.resetDone : T.resetProgress;
                 const lines = txt.split('\n');
@@ -1233,11 +1268,13 @@ function draw() {
                 });
 
                 _resetBtnRect = { x: rbx, y: rby, w: rbw, h: rbh };
+                y += rbh;
             }
 
+            y += hintGap;
             ctx.font      = `${FS * 0.016}px 'Courier New',monospace`;
             ctx.fillStyle = 'rgba(140,150,180,0.55)';
-            ctx.fillText(T.resetHold, W / 2, panY + panH - H * 0.038);
+            ctx.fillText(T.resetHold, W / 2, y + hintH / 2);
         }
     }
 
@@ -1294,7 +1331,7 @@ function draw() {
         sh(3);
         ctx.font      = `${FS*0.022}px 'Courier New',monospace`;
         ctx.fillStyle = `rgba(100,125,190,${a * 0.72})`;
-        ctx.fillText(`${T.ship} ${dailyRuns}`, LC, H * 0.645);
+        ctx.fillText(`${T.runs} ${dailyRuns}`, LC, H * 0.645);
 
         if (newBest && score > 0) {
             sh(10, `rgba(255,200,40,${a*0.7})`);
@@ -1306,6 +1343,11 @@ function draw() {
             ctx.font      = `${FS*0.034}px 'Courier New',monospace`;
             ctx.fillStyle = `rgba(255,225,70,${a})`;
             ctx.fillText(T.newDailyBest, LC, H * 0.74);
+        } else if (best > 0) {
+            sh(3);
+            ctx.font      = `${FS*0.022}px 'Courier New',monospace`;
+            ctx.fillStyle = `rgba(100,125,190,${a * 0.72})`;
+            ctx.fillText(`${T.best}  ${best}`, LC, H * 0.74);
         }
 
         // Right column: top-5 leaderboard + stats
@@ -1373,7 +1415,7 @@ function draw() {
         // Bottom row: HOME | PLAY AGAIN (centered pair)
         if (deadT > 0.9) {
             const b      = Math.min(1, (deadT - 0.9) * 4);
-            const botY   = H * 0.925;
+            const botY   = H * 0.905;
             const btnH   = H * 0.13;
             const btnW   = W * 0.17;
             const gap    = W * 0.04;

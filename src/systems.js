@@ -121,26 +121,26 @@ function checkCoinCollection() {
             if (coin.type === 'blue') {
                 slowTime = Math.min(slowTime + (activeSkin === 3 ? 6.0 : 4.0), activeSkin === 3 ? 12.0 : 8.0);
                 burstCoin(sx, coin.y, 195);
-                notifs.push({ x: sx, y: coin.y - 16, life: 1.1, text: '+SLOW',   color: [60,210,255] });
+                notifs.push({ x: sx, y: coin.y - 16, life: 1.1, text: T.notifSlow,   color: [60,210,255] });
                 sfxSlow();
                 window.webkit?.messageHandlers?.haptic?.postMessage('light');
             } else if (coin.type === 'red') {
                 shieldCount = Math.min(shieldCount + 1, 3);
                 burstCoin(sx, coin.y, 0);
-                notifs.push({ x: sx, y: coin.y - 16, life: 1.1, text: '+SHIELD', color: [255,90,90] });
+                notifs.push({ x: sx, y: coin.y - 16, life: 1.1, text: T.notifShield, color: [255,90,90] });
                 sfxShield();
                 window.webkit?.messageHandlers?.haptic?.postMessage('success');
             } else if (coin.type === 'green') {
                 magnetTime = Math.min(magnetTime + 3.0, 5.0);
                 burstCoin(sx, coin.y, 120);
-                notifs.push({ x: sx, y: coin.y - 16, life: 1.1, text: '+MAGNET', color: [80,255,130] });
+                notifs.push({ x: sx, y: coin.y - 16, life: 1.1, text: T.notifMagnet, color: [80,255,130] });
                 sfxMagnet();
                 window.webkit?.messageHandlers?.haptic?.postMessage('light');
             } else if (coin.type === 'orange') {
                 bulletAmmo = Math.min(bulletAmmo + 5, 10);
                 bulletFireTimer = 0;
                 burstCoin(sx, coin.y, 28);
-                notifs.push({ x: sx, y: coin.y - 16, life: 1.1, text: '+AMMO', color: [255,85,0] });
+                notifs.push({ x: sx, y: coin.y - 16, life: 1.1, text: T.notifAmmo, color: [255,85,0] });
                 sfxBulletPickup();
                 window.webkit?.messageHandlers?.haptic?.postMessage('light');
             } else {
@@ -201,7 +201,7 @@ function updateBullets(dt) {
                     mines.splice(mi, 1);
                     shake += 8;
                     burst(bsx, my);
-                    notifs.push({ x: bsx, y: my - H*0.06, life: 1.1, text: 'BOOM!', color: [255, 120, 20] });
+                    notifs.push({ x: bsx, y: my - H*0.06, life: 1.1, text: T.boom, color: [255, 120, 20] });
                     sfxMineExplode();
                     window.webkit?.messageHandlers?.haptic?.postMessage('medium');
                     hit = true;

@@ -21,6 +21,7 @@ let streak = parseInt(localStorage.getItem('tunnel_streak') || '0');
 let _homeBtnRect = null, _playBtnRect = null;
 let showSettings = false;
 let _settingsBtnRect = null;
+let _leaderboardBtnRect = null;
 let _langBtnRects = [];
 let _resetBtnRect = null;
 let _resetHolding = false;

@@ -1,0 +1,17 @@
+*.iml
+.gradle/
+/local.properties
+.idea/
+.DS_Store
+/build
+/app/build
+/captures
+.externalNativeBuild
+.cxx
+
+# Generated at build time from the repo-root tunl.html/src/the_mountain.mp3
+# (see app/build.gradle's copyGameFiles task) -- not a separate source of truth.
+app/src/main/assets/
+
+# Android signing keys and secrets, if/when a release keystore is added
+Keys/

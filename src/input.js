@@ -26,6 +26,10 @@ function onDown(e) {
             showSettings = true;
             return;
         }
+        if (_leaderboardBtnRect && inRect(cx, cy, _leaderboardBtnRect)) {
+            window.webkit?.messageHandlers?.gameCenter?.postMessage({ action: 'show' });
+            return;
+        }
         if (_btnMusicRect && inRect(cx, cy, _btnMusicRect)) {
             musicOn = !musicOn;
             localStorage.setItem('tunnel_music', musicOn ? '1' : '0');

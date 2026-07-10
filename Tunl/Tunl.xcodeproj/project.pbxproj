@@ -12,6 +12,8 @@
 		BB0007000000000000000001 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = BB0006000000000000000001 /* Assets.xcassets */; };
 		BB0009000000000000000001 /* tunl.html in Resources */ = {isa = PBXBuildFile; fileRef = BB0008000000000000000001 /* tunl.html */; };
 		BB000B000000000000000001 /* the_mountain.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = BB000A000000000000000001 /* the_mountain.mp3 */; };
+		BB000E000000000000000001 /* src in Resources */ = {isa = PBXBuildFile; fileRef = BB000D000000000000000001 /* src */; };
+		CC0003000000000000000001 /* GameKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CC0002000000000000000001 /* GameKit.framework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -22,6 +24,9 @@
 		BB0008000000000000000001 /* tunl.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; name = tunl.html; path = ../tunl.html; sourceTree = "<group>"; };
 		BB000A000000000000000001 /* the_mountain.mp3 */ = {isa = PBXFileReference; lastKnownFileType = audio.mp3; name = the_mountain.mp3; path = ../the_mountain.mp3; sourceTree = "<group>"; };
 		BB000C000000000000000001 /* TUNL.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TUNL.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		BB000D000000000000000001 /* src */ = {isa = PBXFileReference; lastKnownFileType = folder; name = src; path = ../src; sourceTree = "<group>"; };
+		CC0001000000000000000001 /* Tunl.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Tunl.entitlements; sourceTree = "<group>"; };
+		CC0002000000000000000001 /* GameKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = GameKit.framework; path = System/Library/Frameworks/GameKit.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -29,6 +34,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				CC0003000000000000000001 /* GameKit.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -40,6 +46,7 @@
 			children = (
 				AA0004000000000000000001 /* Tunl */,
 				AA0005000000000000000001 /* Game Files */,
+				CC0004000000000000000001 /* Frameworks */,
 				AA0003000000000000000001 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -59,6 +66,7 @@
 				BB0003000000000000000001 /* GameView.swift */,
 				BB0005000000000000000001 /* Info.plist */,
 				BB0006000000000000000001 /* Assets.xcassets */,
+				CC0001000000000000000001 /* Tunl.entitlements */,
 			);
 			path = Tunl;
 			sourceTree = "<group>";
@@ -68,8 +76,17 @@
 			children = (
 				BB0008000000000000000001 /* tunl.html */,
 				BB000A000000000000000001 /* the_mountain.mp3 */,
+				BB000D000000000000000001 /* src */,
 			);
 			name = "Game Files";
+			sourceTree = "<group>";
+		};
+		CC0004000000000000000001 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				CC0002000000000000000001 /* GameKit.framework */,
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -133,6 +150,7 @@
 				BB0007000000000000000001 /* Assets.xcassets in Resources */,
 				BB0009000000000000000001 /* tunl.html in Resources */,
 				BB000B000000000000000001 /* the_mountain.mp3 in Resources */,
+				BB000E000000000000000001 /* src in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -277,6 +295,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Tunl/Tunl.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				INFOPLIST_FILE = Tunl/Info.plist;
@@ -295,6 +314,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Tunl/Tunl.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				INFOPLIST_FILE = Tunl/Info.plist;

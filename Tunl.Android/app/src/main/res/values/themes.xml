@@ -1,0 +1,7 @@
+<resources>
+    <style name="Theme.Tunl" parent="android:Theme.Black.NoTitleBar.Fullscreen">
+        <item name="android:windowBackground">@color/tunlBackground</item>
+        <item name="android:statusBarColor">@color/tunlBackground</item>
+        <item name="android:navigationBarColor">@color/tunlBackground</item>
+    </style>
+</resources>

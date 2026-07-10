@@ -244,7 +244,7 @@ function update(dt) {
             mines.splice(mi, 1);
             shake += 12;
             burst(sx, my);
-            notifs.push({ x: sx, y: my - H*0.06, life: 1.1, text: 'BLOCKED', color: [255, 90, 40] });
+            notifs.push({ x: sx, y: my - H*0.06, life: 1.1, text: T.blocked, color: [255, 90, 40] });
             window.webkit?.messageHandlers?.haptic?.postMessage('heavy');
             break;
         }
@@ -316,6 +316,7 @@ function die(bypassShield = false) {
     if (score > 0) {
         top5 = [...top5, score].sort((a, b) => b - a).slice(0, 5);
         localStorage.setItem('tunnel_top5', JSON.stringify(top5));
+        window.webkit?.messageHandlers?.gameCenter?.postMessage({ action: 'submit', score });
     }
     skinUnlockIdx = -1;
     for (let i = 1; i < SKINS.length; i++) {
