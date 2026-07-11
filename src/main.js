@@ -1,5 +1,14 @@
 document.addEventListener('contextmenu', e => e.preventDefault());
 
+// Native wrappers call this after purchase/restore/launch entitlement checks
+// (see GameView.swift's IAPManager) so JS state stays in sync with StoreKit.
+window._tunlNativeUpdate = function (state) {
+    if (typeof state.removeAdsOwned === 'boolean') {
+        removeAdsOwned = state.removeAdsOwned;
+        localStorage.setItem('tunnel_remove_ads', removeAdsOwned ? '1' : '0');
+    }
+};
+
 // ── Loop ──────────────────────────────────────────────────────────────
 
 window._freezeDraw = false;

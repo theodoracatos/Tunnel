@@ -1150,16 +1150,17 @@ function draw() {
             const lbh        = H * 0.080;
             const lbGap      = H * 0.018;
             const sectionGap = H * 0.045;
-            const dataLabelH = H * 0.045;
-            const rbh        = H * 0.100;
-            const hintGap    = H * 0.028;
-            const hintH      = H * 0.040;
+
+            const hasIAP     = !!window.webkit?.messageHandlers?.iap;
+            const iapBtnH    = H * 0.085;
+            const restoreGap = H * 0.020;
+            const restoreH   = H * 0.032;
+            const iapSectionH = hasIAP ? sectionGap + iapBtnH + (removeAdsOwned ? 0 : restoreGap + restoreH) : 0;
 
             const langCols  = 2;
             const langRows  = Math.ceil(LANG_ORDER.length / langCols);
             const langListH = langRows * lbh + Math.max(0, langRows - 1) * lbGap;
-            const panH = padTop + titleH + langLabelH + langListH + sectionGap
-                       + dataLabelH + sectionGap + rbh + hintGap + hintH + padBottom;
+            const panH = padTop + titleH + langLabelH + langListH + iapSectionH + padBottom;
 
             const panX = W / 2 - panW / 2;
             const panY = Math.max(H * 0.02, Math.min(H * 0.98 - panH, H / 2 - panH / 2));
@@ -1221,60 +1222,40 @@ function draw() {
 
                 _langBtnRects.push({ x: lbx, y: lby, w: lbw, h: lbh, code });
             }
-            y += langListH + sectionGap;
+            y += langListH;
 
-            // Divider above reset section
-            ctx.strokeStyle = 'rgba(60,70,110,0.35)';
-            ctx.lineWidth   = 1;
-            ctx.beginPath();
-            ctx.moveTo(panX + panW * 0.10, y);
-            ctx.lineTo(panX + panW * 0.90, y);
-            ctx.stroke();
+            // Remove Ads purchase (only when the native IAP bridge exists)
+            _removeAdsBtnRect = null;
+            _restoreBtnRect = null;
+            if (hasIAP) {
+                y += sectionGap;
+                if (removeAdsOwned) {
+                    ctx.font      = `${FS * 0.020}px 'Courier New',monospace`;
+                    ctx.fillStyle = 'rgba(120,200,150,0.75)';
+                    ctx.fillText(T.adsRemoved, W / 2, y + iapBtnH / 2);
+                    y += iapBtnH;
+                } else {
+                    const abw = panW * 0.78, aby = y;
+                    const abx = W / 2 - abw / 2;
+                    ctx.fillStyle = 'rgba(15,18,40,0.72)';
+                    ctx.beginPath(); ctx.roundRect(abx, aby, abw, iapBtnH, 7); ctx.fill();
+                    ctx.strokeStyle = 'rgba(90,160,255,0.55)';
+                    ctx.lineWidth   = 1;
+                    ctx.beginPath(); ctx.roundRect(abx, aby, abw, iapBtnH, 7); ctx.stroke();
+                    ctx.font      = `${FS * 0.023}px 'Courier New',monospace`;
+                    ctx.fillStyle = 'rgba(150,200,255,0.90)';
+                    ctx.fillText(T.removeAds, W / 2, aby + iapBtnH / 2);
+                    _removeAdsBtnRect = { x: abx, y: aby, w: abw, h: iapBtnH };
+                    y += iapBtnH;
 
-            // Reset section label
-            ctx.font      = `${FS * 0.020}px 'Courier New',monospace`;
-            ctx.fillStyle = 'rgba(100,120,180,0.65)';
-            ctx.fillText(T.data, W / 2, y + dataLabelH / 2);
-            y += dataLabelH;
-
-            // Reset progress button (hold-to-confirm)
-            {
-                const rbw = panW * 0.78, rby = y;
-                const rbx = W / 2 - rbw / 2;
-                const held = resetHoldT > 0;
-                const txt  = resetFlash > 0 ? T.resetDone : T.resetProgress;
-                const lines = txt.split('\n');
-
-                ctx.fillStyle = 'rgba(15,18,40,0.72)';
-                ctx.beginPath(); ctx.roundRect(rbx, rby, rbw, rbh, 7); ctx.fill();
-                if (held) {
-                    ctx.save();
-                    ctx.beginPath(); ctx.roundRect(rbx, rby, rbw, rbh, 7); ctx.clip();
-                    ctx.fillStyle = 'rgba(220,60,60,0.55)';
-                    ctx.fillRect(rbx, rby, rbw * resetHoldT, rbh);
-                    ctx.restore();
+                    y += restoreGap;
+                    ctx.font      = `${FS * 0.019}px 'Courier New',monospace`;
+                    ctx.fillStyle = 'rgba(180,200,240,0.92)';
+                    ctx.fillText(T.restorePurchases, W / 2, y + restoreH / 2);
+                    _restoreBtnRect = { x: W / 2 - panW * 0.35, y, w: panW * 0.70, h: restoreH };
+                    y += restoreH;
                 }
-                ctx.strokeStyle = held ? 'rgba(255,90,90,0.75)' : 'rgba(120,60,60,0.45)';
-                ctx.lineWidth   = held ? 1.5 : 1;
-                ctx.beginPath(); ctx.roundRect(rbx, rby, rbw, rbh, 7); ctx.stroke();
-
-                ctx.font      = `${FS * 0.023}px 'Courier New',monospace`;
-                ctx.fillStyle = resetFlash > 0 ? 'rgba(255,210,120,0.95)' : 'rgba(255,150,150,0.88)';
-                const lineH   = FS * 0.028;
-                const totalH  = lines.length > 1 ? lineH : 0;
-                lines.forEach((line, i) => {
-                    const ly = rby + rbh / 2 - totalH / 2 + i * lineH;
-                    ctx.fillText(line, W / 2, ly);
-                });
-
-                _resetBtnRect = { x: rbx, y: rby, w: rbw, h: rbh };
-                y += rbh;
             }
-
-            y += hintGap;
-            ctx.font      = `${FS * 0.016}px 'Courier New',monospace`;
-            ctx.fillStyle = 'rgba(140,150,180,0.55)';
-            ctx.fillText(T.resetHold, W / 2, y + hintH / 2);
         }
     }
 

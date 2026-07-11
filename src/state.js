@@ -13,6 +13,7 @@ let musicOn = localStorage.getItem('tunnel_music') !== '0';
 let fxOn    = localStorage.getItem('tunnel_fx')    !== '0';
 let _btnMusicRect = null, _btnFxRect = null;
 let unlockedSkins = parseInt(localStorage.getItem('tunnel_skins') || '1');
+let removeAdsOwned = localStorage.getItem('tunnel_remove_ads') === '1';
 let activeSkin    = parseInt(localStorage.getItem('tunnel_skin')  || '0');
 if (!(unlockedSkins & (1 << activeSkin))) activeSkin = 0;
 let skinUnlockIdx = -1;
@@ -23,10 +24,8 @@ let showSettings = false;
 let _settingsBtnRect = null;
 let _leaderboardBtnRect = null;
 let _langBtnRects = [];
-let _resetBtnRect = null;
-let _resetHolding = false;
-let resetHoldT = 0;    // 0..1 hold-to-confirm progress on the reset button
-let resetFlash = 0;    // confirmation flash after a reset, decays to 0
+let _removeAdsBtnRect = null;
+let _restoreBtnRect = null;
 let parts, thrustParts, deadT, titleT, flashA, shake, trailY;
 let stalactites, nextStalWx;
 let coins, nextCoinWx;

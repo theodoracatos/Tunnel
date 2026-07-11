@@ -16,10 +16,12 @@ struct GameView: UIViewRepresentable {
 
         config.userContentController.add(context.coordinator, name: "haptic")
         config.userContentController.add(context.coordinator, name: "gameCenter")
+        config.userContentController.add(context.coordinator, name: "iap")
 
         context.coordinator.authenticateGameCenter()
 
         let webView = WKWebView(frame: .zero, configuration: config)
+        context.coordinator.webView = webView
         webView.uiDelegate = context.coordinator
         webView.navigationDelegate = context.coordinator
         webView.scrollView.isScrollEnabled = false
@@ -66,6 +68,19 @@ struct GameView: UIViewRepresentable {
 
         static let leaderboardID = "tunl_highscore"
 
+        weak var webView: WKWebView?
+        let iap = IAPManager()
+
+        override init() {
+            super.init()
+            iap.onUpdate = { [weak self] owned in
+                let json = "{\"removeAdsOwned\":\(owned)}"
+                DispatchQueue.main.async {
+                    self?.webView?.evaluateJavaScript("window._tunlNativeUpdate && window._tunlNativeUpdate(\(json))")
+                }
+            }
+        }
+
         func authenticateGameCenter() {
             GKLocalPlayer.local.authenticateHandler = { [weak self] viewController, error in
                 if let viewController {
@@ -104,6 +119,7 @@ struct GameView: UIViewRepresentable {
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             GameView.killPressInteractions(in: webView)
+            Task { await self.iap.refreshEntitlements() }
         }
 
         func webView(_ webView: WKWebView,
@@ -128,6 +144,19 @@ struct GameView: UIViewRepresentable {
                     if let score = body["score"] as? Int { submitScore(score) }
                 case "show":
                     showLeaderboard()
+                default: break
+                }
+                return
+            }
+            if message.name == "iap" {
+                guard let body = message.body as? [String: Any],
+                      let action = body["action"] as? String else { return }
+                print("IAP message received: \(action)")
+                switch action {
+                case "purchase":
+                    Task { await iap.purchaseRemoveAds() }
+                case "restore":
+                    Task { await iap.restore() }
                 default: break
                 }
                 return

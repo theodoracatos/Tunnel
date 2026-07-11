@@ -42,8 +42,6 @@ function rng() {
 
 const MINE_R = W * 0.011;
 
-const RESET_HOLD_TIME = 1.1; // seconds to hold the reset-progress button to confirm
-
 // Perk descriptions live in i18n.js (LANGS[*].skinPerks, same index order) so
 // they stay live if the player switches language without reloading.
 const SKINS = [

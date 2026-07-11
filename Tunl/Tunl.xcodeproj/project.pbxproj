@@ -14,6 +14,8 @@
 		BB000B000000000000000001 /* the_mountain.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = BB000A000000000000000001 /* the_mountain.mp3 */; };
 		BB000E000000000000000001 /* src in Resources */ = {isa = PBXBuildFile; fileRef = BB000D000000000000000001 /* src */; };
 		CC0003000000000000000001 /* GameKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CC0002000000000000000001 /* GameKit.framework */; };
+		DD0002000000000000000001 /* StoreKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DD0001000000000000000001 /* StoreKit.framework */; };
+		EE0002000000000000000001 /* IAPManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE0001000000000000000001 /* IAPManager.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -27,6 +29,9 @@
 		BB000D000000000000000001 /* src */ = {isa = PBXFileReference; lastKnownFileType = folder; name = src; path = ../src; sourceTree = "<group>"; };
 		CC0001000000000000000001 /* Tunl.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Tunl.entitlements; sourceTree = "<group>"; };
 		CC0002000000000000000001 /* GameKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = GameKit.framework; path = System/Library/Frameworks/GameKit.framework; sourceTree = SDKROOT; };
+		DD0001000000000000000001 /* StoreKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = StoreKit.framework; path = System/Library/Frameworks/StoreKit.framework; sourceTree = SDKROOT; };
+		EE0001000000000000000001 /* IAPManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IAPManager.swift; sourceTree = "<group>"; };
+		FF0001000000000000000001 /* Configuration.storekit */ = {isa = PBXFileReference; lastKnownFileType = text; path = Configuration.storekit; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -35,6 +40,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				CC0003000000000000000001 /* GameKit.framework in Frameworks */,
+				DD0002000000000000000001 /* StoreKit.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -64,6 +70,8 @@
 			children = (
 				BB0001000000000000000001 /* TunlApp.swift */,
 				BB0003000000000000000001 /* GameView.swift */,
+				EE0001000000000000000001 /* IAPManager.swift */,
+				FF0001000000000000000001 /* Configuration.storekit */,
 				BB0005000000000000000001 /* Info.plist */,
 				BB0006000000000000000001 /* Assets.xcassets */,
 				CC0001000000000000000001 /* Tunl.entitlements */,
@@ -85,6 +93,7 @@
 			isa = PBXGroup;
 			children = (
 				CC0002000000000000000001 /* GameKit.framework */,
+				DD0001000000000000000001 /* StoreKit.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -163,6 +172,7 @@
 			files = (
 				BB0002000000000000000001 /* TunlApp.swift in Sources */,
 				BB0004000000000000000001 /* GameView.swift in Sources */,
+				EE0002000000000000000001 /* IAPManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

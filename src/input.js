@@ -9,8 +9,12 @@ function onDown(e) {
 
         // Language panel intercepts all taps when open
         if (showSettings) {
-            if (_resetBtnRect && inRect(cx, cy, _resetBtnRect)) {
-                _resetHolding = true;
+            if (_removeAdsBtnRect && inRect(cx, cy, _removeAdsBtnRect)) {
+                window.webkit?.messageHandlers?.iap?.postMessage({ action: 'purchase' });
+                return;
+            }
+            if (_restoreBtnRect && inRect(cx, cy, _restoreBtnRect)) {
+                window.webkit?.messageHandlers?.iap?.postMessage({ action: 'restore' });
                 return;
             }
             for (const b of _langBtnRects) {
@@ -55,18 +59,27 @@ function onDown(e) {
         startPlay(); return;
     }
     if (phase === 'dead' && deadT > 0.9) {
-        if (!e) { startPlay(); holding = true; thrustOn(); return; }
+        if (!e) {
+            window.webkit?.messageHandlers?.ads?.postMessage({ action: 'interstitialRequest' });
+            startPlay(); holding = true; thrustOn(); return;
+        }
         const rect = cv.getBoundingClientRect();
         const cx = (e.clientX - rect.left) * (W / rect.width);
         const cy = (e.clientY - rect.top)  * (H / rect.height);
-        if (_homeBtnRect && inRect(cx, cy, _homeBtnRect)) { titleScreen(); return; }
-        if (_playBtnRect && inRect(cx, cy, _playBtnRect)) { startPlay(); holding = true; thrustOn(); return; }
+        if (_homeBtnRect && inRect(cx, cy, _homeBtnRect)) {
+            window.webkit?.messageHandlers?.ads?.postMessage({ action: 'interstitialRequest' });
+            titleScreen(); return;
+        }
+        if (_playBtnRect && inRect(cx, cy, _playBtnRect)) {
+            window.webkit?.messageHandlers?.ads?.postMessage({ action: 'interstitialRequest' });
+            startPlay(); holding = true; thrustOn(); return;
+        }
         return;
     }
     holding = true;
     if (phase === 'play') thrustOn();
 }
-function onUp() { holding = false; thrustOff(); _resetHolding = false; }
+function onUp() { holding = false; thrustOff(); }
 
 window.addEventListener('pointerdown', e => { e.preventDefault(); onDown(e); });
 window.addEventListener('pointerup',   e => { e.preventDefault(); onUp();   });
