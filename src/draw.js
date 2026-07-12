@@ -947,19 +947,91 @@ function draw() {
         ctx.fillStyle = halo;
         ctx.fillRect(titleX - haloR, logoY - haloR, haloR * 2, haloR * 2);
 
-        // TUNL logo -- double-render for stronger glow
+        // TUNL logo -- the "U" is drawn as a receding tunnel-ring hole instead of
+        // a glyph, so the wordmark itself depicts the thing you're flying through.
+        // Courier New is monospace, so every char shares one advance width -- that
+        // lets us lay glyphs out by hand and drop the hole into the "U" slot without
+        // breaking alignment with T/N/L.
         ctx.font = `bold ${FS*0.090}px 'Courier New',monospace`;
+        const fontPx    = FS * 0.090;
+        const charW     = ctx.measureText('T').width;
+        const logoW     = charW * 4;
         const logoPulse = 24 + 14 * Math.sin(gtime * 1.4);
-        ctx.shadowColor = `rgba(100,150,255,${a * 0.70})`; ctx.shadowBlur = logoPulse * 1.6;
-        ctx.fillStyle   = `rgba(195,220,255,${a * 0.30})`;
-        ctx.fillText('TUNL', titleX, logoY);
-        ctx.shadowBlur  = logoPulse;
-        ctx.fillStyle   = `rgba(215,232,255,${a * 0.97})`;
-        ctx.fillText('TUNL', titleX, logoY);
-        ctx.shadowBlur  = 0;
+
+        ctx.textAlign = 'left';
+        let lx = titleX - logoW / 2;
+        const drawGlyph = (ch) => {
+            ctx.shadowColor = `rgba(100,150,255,${a * 0.70})`; ctx.shadowBlur = logoPulse * 1.6;
+            ctx.fillStyle   = `rgba(195,220,255,${a * 0.30})`;
+            ctx.fillText(ch, lx, logoY);
+            ctx.shadowBlur  = logoPulse;
+            ctx.fillStyle   = `rgba(215,232,255,${a * 0.97})`;
+            ctx.fillText(ch, lx, logoY);
+            ctx.shadowBlur  = 0;
+        };
+
+        drawGlyph('T');
+        lx += charW;
+
+        // Tunnel hole where the "U" sits: the hole is shaped like an actual "U"
+        // (open top, rounded bottom) so the wordmark still reads as TUNL, not
+        // TONL -- nested rim->core gradients are clipped inside it, painted
+        // largest-first so each smaller disc leaves the previous one's bright
+        // rim showing as a ring, reading as a corridor receding into the U.
+        const holeCX = lx + charW / 2;
+        const holeR  = charW * 0.42;
+        const uHalfW = holeR * 0.95;
+        const uTopY  = logoY - holeR * 1.15;
+        const uSideY = logoY + holeR * 0.30;
+        const uDipY  = logoY + holeR * 0.74;
+        const buildUPath = () => {
+            ctx.beginPath();
+            ctx.moveTo(holeCX - uHalfW, uTopY);
+            ctx.lineTo(holeCX - uHalfW, uSideY);
+            ctx.quadraticCurveTo(holeCX - uHalfW, uDipY, holeCX, uDipY);
+            ctx.quadraticCurveTo(holeCX + uHalfW, uDipY, holeCX + uHalfW, uSideY);
+            ctx.lineTo(holeCX + uHalfW, uTopY);
+        };
+
+        ctx.save();
+        buildUPath();
+        ctx.clip();
+        ctx.shadowColor = `rgba(100,150,255,${a * 0.70})`;
+        ctx.shadowBlur  = logoPulse * 1.2;
+        const rings = 4;
+        for (let i = rings; i >= 0; i--) {
+            const t = i / rings; // 1 = outer rim, 0 = vanishing point
+            const r = holeR * 1.3 * (0.15 + 0.85 * t);
+            const grd = ctx.createRadialGradient(holeCX, logoY, 0, holeCX, logoY, r);
+            grd.addColorStop(0, `rgba(6,8,20,${a})`);
+            grd.addColorStop(1, `rgba(${40+30*t},${60+40*t},${140+60*t},${a * (0.35 + 0.5*t)})`);
+            ctx.fillStyle = grd;
+            ctx.beginPath();
+            ctx.arc(holeCX, logoY, r, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.restore();
+
+        ctx.save();
+        ctx.lineCap  = 'round';
+        ctx.lineJoin = 'round';
+        buildUPath();
+        ctx.shadowColor = `rgba(100,150,255,${a * 0.70})`;
+        ctx.shadowBlur   = logoPulse * 1.6;
+        ctx.strokeStyle  = `rgba(215,232,255,${a * 0.97})`;
+        ctx.lineWidth    = Math.max(1, fontPx * 0.13);
+        ctx.stroke();
+        ctx.restore();
+        lx += charW;
+
+        drawGlyph('N');
+        lx += charW;
+        drawGlyph('L');
+        lx += charW;
+
+        ctx.textAlign = 'center';
 
         // Accent underline
-        const logoW = ctx.measureText('TUNL').width;
         const ulY   = logoY + FS * 0.055;
         const ulGrd = ctx.createLinearGradient(titleX - logoW*0.5, ulY, titleX + logoW*0.5, ulY);
         ulGrd.addColorStop(0,   `rgba(80,120,255,0)`);
