@@ -642,19 +642,33 @@ function draw() {
         }
     }
 
-    // Shield rings (one per charge)
+    // Shield bubble (one nested translucent bubble per charge)
     if (shieldCount > 0 && phase === 'play') {
-        const sp = 1 + 0.22 * Math.sin(gtime * 8);
+        const sp = 1 + 0.10 * Math.sin(gtime * 6);
+        let rOuter = PR * 2.0;
         for (let i = 0; i < shieldCount; i++) {
+            const r = PR * (2.0 + i * 0.7) * sp;
+            rOuter = r;
             ctx.beginPath();
-            ctx.arc(PX, py, PR * (2.0 + 0.28 * sp + i * 0.7), 0, Math.PI*2);
-            ctx.strokeStyle = `rgba(255,80,80,${Math.max(0.75 - i * 0.18, 0.35) + 0.20 * sp})`;
-            ctx.lineWidth   = 2.5;
-            ctx.shadowColor = 'rgba(255,50,50,0.85)';
-            ctx.shadowBlur  = 12;
+            ctx.arc(PX, py, r, 0, Math.PI*2);
+            const grad = ctx.createRadialGradient(PX, py, r * 0.3, PX, py, r);
+            grad.addColorStop(0,    'rgba(255,90,90,0.04)');
+            grad.addColorStop(0.75, 'rgba(255,70,70,0.09)');
+            grad.addColorStop(1,    'rgba(255,60,60,0.28)');
+            ctx.fillStyle = grad;
+            ctx.fill();
+            ctx.strokeStyle = `rgba(255,140,140,${Math.max(0.55 - i * 0.12, 0.22)})`;
+            ctx.lineWidth   = 1.6;
+            ctx.shadowColor = 'rgba(255,50,50,0.75)';
+            ctx.shadowBlur  = 10;
             ctx.stroke();
             ctx.shadowBlur  = 0;
         }
+        // glossy highlight on the outermost bubble
+        ctx.beginPath();
+        ctx.arc(PX - rOuter * 0.32, py - rOuter * 0.32, rOuter * 0.22, 0, Math.PI*2);
+        ctx.fillStyle = 'rgba(255,255,255,0.22)';
+        ctx.fill();
     }
 
     // Magnet ring
