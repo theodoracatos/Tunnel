@@ -124,6 +124,8 @@ function drawShip(x, y, r, color, sr, sg, sb, blur) {
 
 // ── Draw ──────────────────────────────────────────────────────────────
 
+let _lastBgStr = '';
+
 function draw() {
     const ox = shake > 0 ? (Math.random()-0.5)*shake : 0;
     const oy = shake > 0 ? (Math.random()-0.5)*shake : 0;
@@ -131,8 +133,9 @@ function draw() {
     ctx.translate(ox, oy);
 
     const theme = getTheme();
-    document.body.style.background = rgb(theme.bg);
-    ctx.fillStyle = rgb(theme.bg);
+    const bgStr = rgb(theme.bg);
+    if (bgStr !== _lastBgStr) { document.body.style.background = bgStr; _lastBgStr = bgStr; }
+    ctx.fillStyle = bgStr;
     ctx.fillRect(-20, -20, W+40, H+40);
 
     // Wall arrays
@@ -282,13 +285,27 @@ function draw() {
     const edgeB   = Math.round(lerp(wb[2], 255, bonusT));
     const edgeClr = `rgba(${edgeR},${edgeG},${edgeB},0.55)`;
 
+    // Precompute which columns sit under a stalactite. Same test as before
+    // (Math.abs(wx - s.wx) <= s.width/2 - RSTEP), just walked once per
+    // stalactite over its own span instead of once per column over the full
+    // stalactite list -- avoids an O(columns x stalactites) scan every frame.
+    const topBlocked = new Uint8Array(n);
+    const botBlocked = new Uint8Array(n);
+    for (const s of stalactites) {
+        const half = s.width / 2 - RSTEP;
+        if (half < 0) continue;
+        const loI = Math.max(0, Math.ceil((s.wx - half - scrollX - xs[0]) / RSTEP));
+        const hiI = Math.min(n - 1, Math.floor((s.wx + half - scrollX - xs[0]) / RSTEP));
+        if (loI > hiI) continue;
+        const arr = s.isTop ? topBlocked : botBlocked;
+        for (let i = loI; i <= hiI; i++) arr[i] = 1;
+    }
+
     ctx.strokeStyle = edgeClr; ctx.lineWidth = 2;
     let brk = true;
     ctx.beginPath();
     for (let i = 0; i < n; i++) {
-        const wx = scrollX + xs[i];
-        const blocked = stalactites.some(s => s.isTop && Math.abs(wx - s.wx) <= s.width / 2 - RSTEP);
-        if (blocked) { brk = true; continue; }
+        if (topBlocked[i]) { brk = true; continue; }
         if (brk) { ctx.moveTo(xs[i], topArr[i]); brk = false; }
         else      ctx.lineTo(xs[i], topArr[i]);
     }
@@ -297,9 +314,7 @@ function draw() {
     brk = true;
     ctx.beginPath();
     for (let i = 0; i < n; i++) {
-        const wx = scrollX + xs[i];
-        const blocked = stalactites.some(s => !s.isTop && Math.abs(wx - s.wx) <= s.width / 2 - RSTEP);
-        if (blocked) { brk = true; continue; }
+        if (botBlocked[i]) { brk = true; continue; }
         if (brk) { ctx.moveTo(xs[i], botArr[i]); brk = false; }
         else      ctx.lineTo(xs[i], botArr[i]);
     }
