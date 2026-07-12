@@ -11,6 +11,7 @@ final class IAPManager {
     var onUpdate: ((Bool) -> Void)?
 
     private var updatesTask: Task<Void, Never>?
+    private var intentsTask: Task<Void, Never>?
 
     init() {
         updatesTask = Task { [weak self] in
@@ -18,10 +19,19 @@ final class IAPManager {
                 await self?.handle(result)
             }
         }
+        // Handles taps on IAPs promoted on the App Store product page / search
+        // results (App Store-Werbeaktion), which can arrive while the app is
+        // launching rather than through purchaseRemoveAds().
+        intentsTask = Task { [weak self] in
+            for await intent in PurchaseIntent.intents {
+                await self?.purchase(intent.product)
+            }
+        }
     }
 
     deinit {
         updatesTask?.cancel()
+        intentsTask?.cancel()
     }
 
     func refreshEntitlements() async {
@@ -38,6 +48,14 @@ final class IAPManager {
                 print("IAP purchase: no product found for id \(Self.removeAdsProductID) - check StoreKit Configuration is set on the scheme")
                 return
             }
+            await purchase(product)
+        } catch {
+            print("IAP purchase failed: \(error.localizedDescription)")
+        }
+    }
+
+    private func purchase(_ product: Product) async {
+        do {
             let result = try await product.purchase()
             switch result {
             case .success(let verification):
