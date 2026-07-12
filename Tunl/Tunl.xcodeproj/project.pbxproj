@@ -15,7 +15,9 @@
 		BB000E000000000000000001 /* src in Resources */ = {isa = PBXBuildFile; fileRef = BB000D000000000000000001 /* src */; };
 		CC0003000000000000000001 /* GameKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CC0002000000000000000001 /* GameKit.framework */; };
 		DD0002000000000000000001 /* StoreKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DD0001000000000000000001 /* StoreKit.framework */; };
+		E4AE65DC300317A20067F8C9 /* GoogleMobileAds in Frameworks */ = {isa = PBXBuildFile; productRef = E4AE65DB300317A20067F8C9 /* GoogleMobileAds */; };
 		EE0002000000000000000001 /* IAPManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE0001000000000000000001 /* IAPManager.swift */; };
+		AD0002000000000000000001 /* AdsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD0001000000000000000001 /* AdsManager.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -31,6 +33,7 @@
 		CC0002000000000000000001 /* GameKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = GameKit.framework; path = System/Library/Frameworks/GameKit.framework; sourceTree = SDKROOT; };
 		DD0001000000000000000001 /* StoreKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = StoreKit.framework; path = System/Library/Frameworks/StoreKit.framework; sourceTree = SDKROOT; };
 		EE0001000000000000000001 /* IAPManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IAPManager.swift; sourceTree = "<group>"; };
+		AD0001000000000000000001 /* AdsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdsManager.swift; sourceTree = "<group>"; };
 		FF0001000000000000000001 /* Configuration.storekit */ = {isa = PBXFileReference; lastKnownFileType = text; path = Configuration.storekit; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -39,6 +42,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E4AE65DC300317A20067F8C9 /* GoogleMobileAds in Frameworks */,
 				CC0003000000000000000001 /* GameKit.framework in Frameworks */,
 				DD0002000000000000000001 /* StoreKit.framework in Frameworks */,
 			);
@@ -71,6 +75,7 @@
 				BB0001000000000000000001 /* TunlApp.swift */,
 				BB0003000000000000000001 /* GameView.swift */,
 				EE0001000000000000000001 /* IAPManager.swift */,
+				AD0001000000000000000001 /* AdsManager.swift */,
 				FF0001000000000000000001 /* Configuration.storekit */,
 				BB0005000000000000000001 /* Info.plist */,
 				BB0006000000000000000001 /* Assets.xcassets */,
@@ -142,6 +147,9 @@
 				Base,
 			);
 			mainGroup = AA0002000000000000000001;
+			packageReferences = (
+				E4AE65DA300317A20067F8C9 /* XCRemoteSwiftPackageReference "swift-package-manager-google-mobile-ads" */,
+			);
 			productRefGroup = AA0003000000000000000001 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -173,6 +181,7 @@
 				BB0002000000000000000001 /* TunlApp.swift in Sources */,
 				BB0004000000000000000001 /* GameView.swift in Sources */,
 				EE0002000000000000000001 /* IAPManager.swift in Sources */,
+				AD0002000000000000000001 /* AdsManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -360,6 +369,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		E4AE65DA300317A20067F8C9 /* XCRemoteSwiftPackageReference "swift-package-manager-google-mobile-ads" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/googleads/swift-package-manager-google-mobile-ads.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 13.6.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		E4AE65DB300317A20067F8C9 /* GoogleMobileAds */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E4AE65DA300317A20067F8C9 /* XCRemoteSwiftPackageReference "swift-package-manager-google-mobile-ads" */;
+			productName = GoogleMobileAds;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = AA0001000000000000000001 /* Project object */;
 }

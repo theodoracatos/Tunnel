@@ -969,9 +969,9 @@ function draw() {
         ctx.fillStyle = ulGrd;
         ctx.fillRect(titleX - logoW*0.5, ulY, logoW, 1.5);
 
-        ctx.shadowColor = 'rgba(0,0,0,0.85)'; ctx.shadowBlur = 4;
-        ctx.font      = `${FS*0.026}px 'Courier New',monospace`;
-        ctx.fillStyle = `rgba(120,155,215,${a * 0.72})`;
+        ctx.shadowColor = 'rgba(0,0,0,0.90)'; ctx.shadowBlur = 3;
+        ctx.font      = `bold ${FS*0.026}px 'Courier New',monospace`;
+        ctx.fillStyle = `rgba(175,205,255,${a * 0.95})`;
         ctx.fillText(WORLD_NAME.toUpperCase(), titleX, LAND ? H * 0.455 : H/2 - H*0.038);
 
         // TAP TO START -- strong pulsing glow, the main CTA
@@ -987,10 +987,9 @@ function draw() {
         ctx.fillText(T.tap, titleX, LAND ? H * 0.63 : H/2 + H*0.140);
         ctx.shadowBlur  = 0;
 
-        // Audio toggle + language buttons
-        const tBtnY   = LAND ? H * 0.80 : H/2 + H*0.225;
-        const musicBX = LAND ? titleX - W * 0.055 : W * 0.285;
-        const fxBX    = LAND ? titleX + W * 0.055 : W * 0.715;
+        // Settings/leaderboard row + shared button-drawing helper
+        // (also reused inside the settings panel for the audio toggles)
+        const tBtnY = LAND ? H * 0.80 : H/2 + H*0.225;
         ctx.font = `${FS*0.022}px 'Courier New',monospace`;
         const drawBtn = (bCx, bCy, label, active, blue) => {
             const m  = ctx.measureText(label);
@@ -1016,22 +1015,19 @@ function draw() {
             ctx.fillText(label, bCx, bCy);
             return { x: bx, y: by, w: bw, h: bh };
         };
-        _btnMusicRect = drawBtn(musicBX, tBtnY, musicOn ? T.musicOn : T.musicOff, musicOn, false);
-        _btnFxRect    = drawBtn(fxBX,    tBtnY, fxOn    ? T.fxOn    : T.fxOff,    fxOn,    false);
-
-        // Settings button -- own row below MUSIC/FX so its (localized) text
-        // label can be as wide as it needs without bumping into the info column.
+        // Settings button -- its (localized) text label can be as wide as it
+        // needs without bumping into the info column.
         // Paired with the Game Center leaderboard button when that native bridge exists;
         // widths are measured first so long localized labels never overlap.
         {
-            const settingsBY = tBtnY + H * 0.10;
+            const settingsBY = tBtnY;
             const hasGameCenter = !!window.webkit?.messageHandlers?.gameCenter;
             if (hasGameCenter) {
                 const settingsW    = ctx.measureText(T.settings).width + W*0.034;
                 const leaderboardW = ctx.measureText(T.leaderboard).width + W*0.034;
                 const rowGap = W * 0.02;
-                const settingsCX    = titleX - leaderboardW/2 - rowGap/2;
-                const leaderboardCX = titleX + settingsW/2 + rowGap/2;
+                const settingsCX    = titleX - settingsW/2 - rowGap/2;
+                const leaderboardCX = titleX + leaderboardW/2 + rowGap/2;
                 _settingsBtnRect    = drawBtn(settingsCX, settingsBY, T.settings, true, true);
                 _leaderboardBtnRect = drawBtn(leaderboardCX, settingsBY, T.leaderboard, true, false);
             } else {
@@ -1040,9 +1036,9 @@ function draw() {
         }
 
         {
-            ctx.shadowColor = 'rgba(0,0,0,0.85)'; ctx.shadowBlur = 4;
-            ctx.font        = `${FS*0.026}px 'Courier New',monospace`;
-            ctx.fillStyle   = `rgba(160,185,255,${a * 0.92})`;
+            ctx.shadowColor = 'rgba(0,0,0,0.90)'; ctx.shadowBlur = 3;
+            ctx.font        = `bold ${FS*0.026}px 'Courier New',monospace`;
+            ctx.fillStyle   = `rgba(190,212,255,${a * 0.98})`;
             ctx.fillText(`${T.today}  ${dailyRuns > 0 ? dailyBest : '-'}`, infoX, LAND ? H * 0.33 : H/2 + H*0.280);
             if (best > dailyBest) {
                 ctx.font      = `${FS*0.019}px 'Courier New',monospace`;
@@ -1054,10 +1050,10 @@ function draw() {
 
         if (streak > 0) {
             const flame = streak >= 7 ? ' **' : streak >= 3 ? ' *' : '';
-            ctx.font        = `${FS*0.022}px 'Courier New',monospace`;
-            ctx.fillStyle   = streak >= 3 ? `rgba(255,170,55,${a * 0.95})` : `rgba(155,175,220,${a * 0.88})`;
-            ctx.shadowColor = streak >= 3 ? `rgba(255,140,20,${a * 0.50})` : 'rgba(0,0,0,0.85)';
-            ctx.shadowBlur  = streak >= 3 ? 8 : 4;
+            ctx.font        = `bold ${FS*0.022}px 'Courier New',monospace`;
+            ctx.fillStyle   = streak >= 3 ? `rgba(255,180,70,${a * 0.98})` : `rgba(185,205,245,${a * 0.96})`;
+            ctx.shadowColor = streak >= 3 ? `rgba(255,140,20,${a * 0.50})` : 'rgba(0,0,0,0.90)';
+            ctx.shadowBlur  = streak >= 3 ? 6 : 3;
             ctx.fillText(`${streak}${flame} ${T.day}`, infoX, LAND ? H * 0.50 : H/2 + H*0.348);
             ctx.shadowBlur  = 0;
         }
@@ -1146,6 +1142,7 @@ function draw() {
             const padTop     = H * 0.060;
             const padBottom  = H * 0.040;
             const titleH     = H * 0.070;
+            const audioRowH  = H * 0.075;
             const langLabelH = H * 0.045;
             const lbh        = H * 0.080;
             const lbGap      = H * 0.018;
@@ -1160,7 +1157,7 @@ function draw() {
             const langCols  = 2;
             const langRows  = Math.ceil(LANG_ORDER.length / langCols);
             const langListH = langRows * lbh + Math.max(0, langRows - 1) * lbGap;
-            const panH = padTop + titleH + langLabelH + langListH + iapSectionH + padBottom;
+            const panH = padTop + titleH + audioRowH + sectionGap + langLabelH + langListH + iapSectionH + padBottom;
 
             const panX = W / 2 - panW / 2;
             const panY = Math.max(H * 0.02, Math.min(H * 0.98 - panH, H / 2 - panH / 2));
@@ -1187,10 +1184,29 @@ function draw() {
             ctx.shadowBlur  = 0;
             y += titleH;
 
+            // Audio toggle row (Music/FX)
+            {
+                const audioBY    = y + audioRowH / 2;
+                const audioGap   = W * 0.02;
+                const musicLabel = musicOn ? T.musicOn : T.musicOff;
+                const fxLabel    = fxOn    ? T.fxOn    : T.fxOff;
+                ctx.font = `${FS*0.022}px 'Courier New',monospace`;
+                const musicW = ctx.measureText(musicLabel).width + W*0.034;
+                const fxW    = ctx.measureText(fxLabel).width    + W*0.034;
+                const musicCX = W/2 - musicW/2 - audioGap/2;
+                const fxCX    = W/2 + fxW/2    + audioGap/2;
+                _btnMusicRect = drawBtn(musicCX, audioBY, musicLabel, musicOn, false);
+                _btnFxRect    = drawBtn(fxCX,    audioBY, fxLabel,    fxOn,    false);
+            }
+            y += audioRowH + sectionGap;
+
             // Language section label
-            ctx.font      = `${FS * 0.020}px 'Courier New',monospace`;
-            ctx.fillStyle = 'rgba(100,120,180,0.65)';
+            ctx.font        = `bold ${FS * 0.021}px 'Courier New',monospace`;
+            ctx.fillStyle   = 'rgba(180,200,250,0.95)';
+            ctx.shadowColor = 'rgba(0,0,0,0.90)';
+            ctx.shadowBlur  = 3;
             ctx.fillText(T.language, W / 2, y + langLabelH / 2);
+            ctx.shadowBlur  = 0;
             y += langLabelH;
 
             _langBtnRects = [];
@@ -1215,7 +1231,7 @@ function draw() {
                 ctx.stroke();
 
                 ctx.font      = `${active ? 'bold ' : ''}${FS * 0.023}px 'Courier New',monospace`;
-                ctx.fillStyle = active ? 'rgba(140,180,255,0.97)' : 'rgba(110,130,185,0.72)';
+                ctx.fillStyle = active ? 'rgba(140,180,255,0.97)' : 'rgba(150,170,220,0.88)';
                 if (active) { ctx.shadowColor = 'rgba(80,140,255,0.55)'; ctx.shadowBlur = 10; }
                 ctx.fillText(lang.name, lbx + lbw / 2, lby + lbh / 2);
                 ctx.shadowBlur = 0;
@@ -1261,20 +1277,20 @@ function draw() {
 
     if (phase === 'dead') {
         ctx.textBaseline = 'middle';
-        const a  = Math.min(1, deadT * 5);
+        const a  = Math.min(1, deadT * 6.5);
         const sh = (blur, col = 'rgba(0,0,0,0.90)') => { ctx.shadowColor = col; ctx.shadowBlur = blur; };
 
         // Dark overlay
-        ctx.fillStyle = `rgba(4,4,14,${a * 0.78})`;
+        ctx.fillStyle = `rgba(4,4,14,${a * 0.82})`;
         ctx.fillRect(0, 0, W, H);
 
         // Panel card backdrop
         sh(0);
-        ctx.fillStyle = `rgba(6,8,22,${a * 0.58})`;
+        ctx.fillStyle = `rgba(6,8,22,${a * 0.64})`;
         ctx.beginPath();
         ctx.roundRect(W * 0.07, H * 0.07, W * 0.86, H * 0.75, 10);
         ctx.fill();
-        ctx.strokeStyle = `rgba(55,75,140,${a * 0.32})`;
+        ctx.strokeStyle = `rgba(70,95,170,${a * 0.55})`;
         ctx.lineWidth = 1;
         ctx.stroke();
 
@@ -1284,50 +1300,50 @@ function draw() {
         // Vertical separator
         const sepGrd = ctx.createLinearGradient(0, H * 0.12, 0, H * 0.82);
         sepGrd.addColorStop(0,   `rgba(55,75,140,0)`);
-        sepGrd.addColorStop(0.2, `rgba(55,75,140,${a * 0.38})`);
-        sepGrd.addColorStop(0.8, `rgba(55,75,140,${a * 0.38})`);
+        sepGrd.addColorStop(0.2, `rgba(70,95,170,${a * 0.50})`);
+        sepGrd.addColorStop(0.8, `rgba(70,95,170,${a * 0.50})`);
         sepGrd.addColorStop(1,   `rgba(55,75,140,0)`);
         ctx.fillStyle = sepGrd;
         ctx.fillRect(W * 0.455, H * 0.10, 1, H * 0.73);
 
         // Left column: DEAD + score
-        sh(10, `rgba(200,30,30,${a * 0.55})`);
+        sh(5, `rgba(200,30,30,${a * 0.55})`);
         ctx.font      = `bold ${FS*0.095}px 'Courier New',monospace`;
         ctx.fillStyle = `rgba(255,70,70,${a})`;
         ctx.fillText(T.dead, LC, H * 0.285);
 
         // Accent underline
         sh(0);
-        ctx.fillStyle = `rgba(255,70,70,${a * 0.50})`;
+        ctx.fillStyle = `rgba(255,80,80,${a * 0.75})`;
         const deadW = ctx.measureText('DEAD').width;
-        ctx.fillRect(LC - deadW * 0.5, H * 0.352, deadW, 1.5);
+        ctx.fillRect(LC - deadW * 0.5, H * 0.352, deadW, 2);
 
         // Score with pulsing glow
-        const scorePulse = newDailyBest ? 28 + 8 * Math.sin(deadT * 3.5) : 6;
+        const scorePulse = newDailyBest ? 18 + 5 * Math.sin(deadT * 3.5) : 4;
         sh(scorePulse, newDailyBest ? `rgba(255,190,0,${a*0.75})` : 'rgba(0,0,0,0.90)');
         ctx.font      = `bold ${FS*0.140}px 'Courier New',monospace`;
         ctx.fillStyle = newDailyBest ? `rgba(255,225,65,${a})` : `rgba(225,240,255,${a})`;
         ctx.fillText(score, LC, H * 0.52);
 
-        sh(3);
-        ctx.font      = `${FS*0.022}px 'Courier New',monospace`;
-        ctx.fillStyle = `rgba(100,125,190,${a * 0.72})`;
+        sh(2);
+        ctx.font      = `bold ${FS*0.026}px 'Courier New',monospace`;
+        ctx.fillStyle = `rgba(160,190,240,${a * 0.95})`;
         ctx.fillText(`${T.runs} ${dailyRuns}`, LC, H * 0.645);
 
         if (newBest && score > 0) {
-            sh(10, `rgba(255,200,40,${a*0.7})`);
-            ctx.font      = `${FS*0.034}px 'Courier New',monospace`;
-            ctx.fillStyle = `rgba(255,225,70,${a})`;
+            sh(6, `rgba(255,200,40,${a*0.7})`);
+            ctx.font      = `bold ${FS*0.036}px 'Courier New',monospace`;
+            ctx.fillStyle = `rgba(255,240,120,${a})`;
             ctx.fillText(T.newBest, LC, H * 0.74);
         } else if (newDailyBest && score > 0) {
-            sh(10, `rgba(255,200,40,${a*0.7})`);
-            ctx.font      = `${FS*0.034}px 'Courier New',monospace`;
-            ctx.fillStyle = `rgba(255,225,70,${a})`;
+            sh(6, `rgba(255,200,40,${a*0.7})`);
+            ctx.font      = `bold ${FS*0.036}px 'Courier New',monospace`;
+            ctx.fillStyle = `rgba(255,240,120,${a})`;
             ctx.fillText(T.newDailyBest, LC, H * 0.74);
         } else if (best > 0) {
-            sh(3);
-            ctx.font      = `${FS*0.022}px 'Courier New',monospace`;
-            ctx.fillStyle = `rgba(100,125,190,${a * 0.72})`;
+            sh(2);
+            ctx.font      = `bold ${FS*0.026}px 'Courier New',monospace`;
+            ctx.fillStyle = `rgba(160,190,240,${a * 0.95})`;
             ctx.fillText(`${T.best}  ${best}`, LC, H * 0.74);
         }
 
@@ -1335,9 +1351,9 @@ function draw() {
         let ry = H * 0.155;
         const LB_STEP = H * 0.095;
 
-        sh(3);
-        ctx.font      = `${FS*0.018}px 'Courier New',monospace`;
-        ctx.fillStyle = `rgba(130,155,210,${a * 0.70})`;
+        sh(2);
+        ctx.font      = `bold ${FS*0.024}px 'Courier New',monospace`;
+        ctx.fillStyle = `rgba(170,195,240,${a * 0.90})`;
         ctx.fillText(T.top5, RC, ry);
         ry += H * 0.072;
 
@@ -1346,17 +1362,17 @@ function draw() {
             const entry = top5[i];
             const isMe  = i === myRank && entry === score;
             if (entry !== undefined) {
-                sh(isMe ? (newBest ? 16 : 6) : 3,
+                sh(isMe ? (newBest ? 10 : 4) : 2,
                    isMe && newBest ? `rgba(255,190,0,${a*0.7})` : 'rgba(0,0,0,0.90)');
-                ctx.font      = `${isMe ? 'bold ' : ''}${FS*0.034}px 'Courier New',monospace`;
+                ctx.font      = `bold ${FS*0.040}px 'Courier New',monospace`;
                 ctx.fillStyle = isMe
-                    ? (newBest ? `rgba(255,225,65,${a})` : `rgba(200,230,255,${a})`)
-                    : `rgba(120,145,200,${a * 0.70})`;
+                    ? (newBest ? `rgba(255,225,65,${a})` : `rgba(210,235,255,${a})`)
+                    : `rgba(175,200,240,${a * 0.90})`;
                 ctx.fillText(`#${i + 1}  ${entry}`, RC, ry);
             } else {
                 sh(2);
-                ctx.font      = `${FS*0.028}px 'Courier New',monospace`;
-                ctx.fillStyle = `rgba(75,90,135,${a * 0.45})`;
+                ctx.font      = `${FS*0.032}px 'Courier New',monospace`;
+                ctx.fillStyle = `rgba(100,120,165,${a * 0.55})`;
                 ctx.fillText(`#${i + 1}  -`, RC, ry);
             }
             ry += LB_STEP;
@@ -1372,7 +1388,7 @@ function draw() {
         }
 
         {
-            const statParts = [`${runCoins} ${runCoins !== 1 ? T.coins : T.coin}`];
+            const statParts = [`${runCoins} ${runCoins !== 1 ? T.powerups : T.powerup}`];
             if (runNearMisses > 0) statParts.push(`${runNearMisses} ${T.close}`);
             if (runMaxCombo   > 1) statParts.push(`x${runMaxCombo} ${T.combo}`);
             sh(3);
@@ -1388,14 +1404,14 @@ function draw() {
             ctx.font        = `bold ${FS*0.030}px 'Courier New',monospace`;
             ctx.fillStyle   = `rgba(${sr},${sg},${sb},${a*0.95})`;
             ctx.shadowColor = `rgba(${sr},${sg},${sb},${a*0.60})`;
-            ctx.shadowBlur  = 14;
+            ctx.shadowBlur  = 8;
             ctx.fillText(`${sk.name} ${T.unlocked}`, RC, ry);
             ctx.shadowBlur  = 0;
         }
 
         // Bottom row: HOME | PLAY AGAIN (centered pair)
-        if (deadT > 0.9) {
-            const b      = Math.min(1, (deadT - 0.9) * 4);
+        if (deadT > 0.75) {
+            const b      = Math.min(1, (deadT - 0.75) * 6);
             const botY   = H * 0.905;
             const btnH   = H * 0.13;
             const btnW   = W * 0.17;
@@ -1408,24 +1424,24 @@ function draw() {
             const homeX = homeCX - btnW * 0.5;
             _homeBtnRect = { x: homeX, y: botY - btnH * 0.5, w: btnW, h: btnH };
             sh(0);
-            ctx.fillStyle   = `rgba(18,24,44,${b * 0.85})`;
+            ctx.fillStyle   = `rgba(18,24,44,${b * 0.90})`;
             ctx.fillRect(homeX, botY - btnH * 0.5, btnW, btnH);
-            ctx.strokeStyle = `rgba(70,90,160,${b * 0.50})`;
+            ctx.strokeStyle = `rgba(80,105,180,${b * 0.70})`;
             ctx.lineWidth   = 1; ctx.strokeRect(homeX, botY - btnH * 0.5, btnW, btnH);
-            sh(4); ctx.fillStyle = `rgba(120,145,220,${b * 0.85})`;
+            sh(2); ctx.fillStyle = `rgba(130,155,230,${b * 0.90})`;
             ctx.fillText(T.home, homeCX, botY);
 
             // PLAY AGAIN button
             ctx.font = `bold ${FS*0.028}px 'Courier New',monospace`;
             const playX = playCX - btnW * 0.5;
             _playBtnRect = { x: playX, y: botY - btnH * 0.5, w: btnW, h: btnH };
-            sh(10, `rgba(80,120,255,${b * 0.55})`);
-            ctx.fillStyle   = `rgba(16,28,65,${b * 0.85})`;
+            sh(6, `rgba(80,120,255,${b * 0.55})`);
+            ctx.fillStyle   = `rgba(16,28,65,${b * 0.90})`;
             ctx.fillRect(playX, botY - btnH * 0.5, btnW, btnH);
-            ctx.strokeStyle = `rgba(90,130,255,${b * 0.65})`;
+            ctx.strokeStyle = `rgba(110,150,255,${b * 0.85})`;
             ctx.lineWidth   = 1.5; ctx.strokeRect(playX, botY - btnH * 0.5, btnW, btnH);
-            sh(12, `rgba(100,150,255,${b * 0.60})`);
-            ctx.fillStyle   = `rgba(170,200,255,${b * 0.95})`;
+            sh(6, `rgba(100,150,255,${b * 0.60})`);
+            ctx.fillStyle   = `rgba(180,210,255,${b * 0.95})`;
             ctx.fillText(T.playAgain, playCX, botY);
         }
     }

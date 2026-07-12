@@ -17,6 +17,7 @@ struct GameView: UIViewRepresentable {
         config.userContentController.add(context.coordinator, name: "haptic")
         config.userContentController.add(context.coordinator, name: "gameCenter")
         config.userContentController.add(context.coordinator, name: "iap")
+        config.userContentController.add(context.coordinator, name: "ads")
 
         context.coordinator.authenticateGameCenter()
 
@@ -70,6 +71,7 @@ struct GameView: UIViewRepresentable {
 
         weak var webView: WKWebView?
         let iap = IAPManager()
+        let ads = AdsManager()
 
         override init() {
             super.init()
@@ -157,6 +159,16 @@ struct GameView: UIViewRepresentable {
                     Task { await iap.purchaseRemoveAds() }
                 case "restore":
                     Task { await iap.restore() }
+                default: break
+                }
+                return
+            }
+            if message.name == "ads" {
+                guard let body = message.body as? [String: Any],
+                      let action = body["action"] as? String else { return }
+                switch action {
+                case "interstitialRequest":
+                    ads.requestInterstitial(removeAdsOwned: iap.removeAdsOwned)
                 default: break
                 }
                 return

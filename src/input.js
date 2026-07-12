@@ -17,6 +17,16 @@ function onDown(e) {
                 window.webkit?.messageHandlers?.iap?.postMessage({ action: 'restore' });
                 return;
             }
+            if (_btnMusicRect && inRect(cx, cy, _btnMusicRect)) {
+                musicOn = !musicOn;
+                localStorage.setItem('tunnel_music', musicOn ? '1' : '0');
+                return;
+            }
+            if (_btnFxRect && inRect(cx, cy, _btnFxRect)) {
+                fxOn = !fxOn;
+                localStorage.setItem('tunnel_fx', fxOn ? '1' : '0');
+                return;
+            }
             for (const b of _langBtnRects) {
                 if (inRect(cx, cy, b)) {
                     setLang(b.code);
@@ -32,16 +42,6 @@ function onDown(e) {
         }
         if (_leaderboardBtnRect && inRect(cx, cy, _leaderboardBtnRect)) {
             window.webkit?.messageHandlers?.gameCenter?.postMessage({ action: 'show' });
-            return;
-        }
-        if (_btnMusicRect && inRect(cx, cy, _btnMusicRect)) {
-            musicOn = !musicOn;
-            localStorage.setItem('tunnel_music', musicOn ? '1' : '0');
-            return;
-        }
-        if (_btnFxRect && inRect(cx, cy, _btnFxRect)) {
-            fxOn = !fxOn;
-            localStorage.setItem('tunnel_fx', fxOn ? '1' : '0');
             return;
         }
         for (let i = 0; i < _skinBtnRects.length; i++) {
