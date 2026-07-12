@@ -7,7 +7,10 @@
       "Bash(git commit *)",
       "Bash(git branch *)",
       "Bash(git fetch *)",
-      "Bash(git push)"
+      "Bash(git push)",
+      "Bash(plutil -lint *)",
+      "Bash(dotnet list *)",
+      "Bash(npm root *)"
     ],
     "deny": [
       "Bash(git push --force*)",

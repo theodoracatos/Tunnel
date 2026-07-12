@@ -139,7 +139,6 @@ function sfxCoin() {
 }
 
 function sfxDie() {
-    window.webkit?.messageHandlers?.haptic?.postMessage('error');
     if (!_ac || !fxOn) return;
     const t   = _ac.currentTime;
     const src = _ac.createBufferSource();
