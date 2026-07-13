@@ -22,6 +22,7 @@ import androidx.webkit.WebViewAssetLoader
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import com.google.android.gms.games.PlayGames
+import com.google.android.gms.games.leaderboard.LeaderboardVariant
 import org.json.JSONObject
 
 class MainActivity : ComponentActivity() {
@@ -216,8 +217,14 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun showLeaderboard() {
+        // Mirrors GameView.swift's GKGameCenterViewController(timeScope: .today):
+        // opens straight to the daily leaderboard, matching the game's daily reset.
         PlayGames.getLeaderboardsClient(this)
-            .getLeaderboardIntent(getString(R.string.leaderboard_id))
+            .getLeaderboardIntent(
+                getString(R.string.leaderboard_id),
+                LeaderboardVariant.TIME_SPAN_DAILY,
+                LeaderboardVariant.COLLECTION_PUBLIC
+            )
             .addOnSuccessListener { intent -> leaderboardLauncher.launch(intent) }
             .addOnFailureListener { e -> Log.w("TunlPlayGames", "Could not open leaderboard", e) }
     }
