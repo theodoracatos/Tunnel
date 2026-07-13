@@ -26,9 +26,11 @@ class MainActivity : ComponentActivity() {
     private val leaderboardLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { }
 
-    // Shims window.webkit.messageHandlers.gameCenter so the game's existing iOS
-    // bridge calls (see update.js/draw.js/input.js) work unchanged on Android.
-    private val gameCenterShimJs = """
+    private val billing = BillingManager(this)
+
+    // Shims window.webkit.messageHandlers.{gameCenter,iap} so the game's existing
+    // iOS bridge calls (see update.js/draw.js/input.js) work unchanged on Android.
+    private val nativeShimJs = """
         (function() {
             if (!window.webkit) window.webkit = {};
             if (!window.webkit.messageHandlers) window.webkit.messageHandlers = {};
@@ -37,21 +39,31 @@ class MainActivity : ComponentActivity() {
                     TunlNative.postMessage('gameCenter', JSON.stringify(body));
                 }
             };
+            window.webkit.messageHandlers.iap = {
+                postMessage: function(body) {
+                    TunlNative.postMessage('iap', JSON.stringify(body));
+                }
+            };
         })();
     """.trimIndent()
 
     // Mirrors the iOS wrapper's WKScriptMessageHandler bridge: the game code calls
-    // window.webkit.messageHandlers.gameCenter.postMessage({action, score}) unmodified
+    // window.webkit.messageHandlers.{gameCenter,iap}.postMessage({...}) unmodified
     // on both platforms, funneled here via the shim above.
     private inner class NativeBridge {
         @JavascriptInterface
         fun postMessage(handler: String, bodyJson: String) {
-            if (handler != "gameCenter") return
             val body = JSONObject(bodyJson)
             runOnUiThread {
-                when (body.optString("action")) {
-                    "submit" -> submitScore(body.optInt("score"))
-                    "show" -> showLeaderboard()
+                when (handler) {
+                    "gameCenter" -> when (body.optString("action")) {
+                        "submit" -> submitScore(body.optInt("score"))
+                        "show" -> showLeaderboard()
+                    }
+                    "iap" -> when (body.optString("action")) {
+                        "purchase" -> billing.purchaseRemoveAds(this@MainActivity)
+                        "restore" -> billing.restore()
+                    }
                 }
             }
         }
@@ -63,6 +75,14 @@ class MainActivity : ComponentActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         hideSystemBars()
         signIntoPlayGames()
+
+        // Mirrors the iOS Coordinator's iap.onUpdate closure, which pushes
+        // ownership changes into the page via window._tunlNativeUpdate.
+        billing.onUpdate = { owned ->
+            val json = "{\"removeAdsOwned\":$owned}"
+            webView.evaluateJavascript("window._tunlNativeUpdate && window._tunlNativeUpdate($json)", null)
+        }
+        billing.start()
 
         webView = WebView(this).apply {
             settings.javaScriptEnabled = true
@@ -91,7 +111,7 @@ class MainActivity : ComponentActivity() {
         // a beat late rather than being missing.
         val supportsDocumentStart = WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
         if (supportsDocumentStart) {
-            WebViewCompat.addDocumentStartJavaScript(webView, gameCenterShimJs, setOf("*"))
+            WebViewCompat.addDocumentStartJavaScript(webView, nativeShimJs, setOf("*"))
         }
 
         // Serves the bundled assets over a synthetic https:// origin so relative
@@ -108,7 +128,7 @@ class MainActivity : ComponentActivity() {
             ): WebResourceResponse? = assetLoader.shouldInterceptRequest(request.url)
 
             override fun onPageFinished(view: WebView, url: String?) {
-                if (!supportsDocumentStart) view.evaluateJavascript(gameCenterShimJs, null)
+                if (!supportsDocumentStart) view.evaluateJavascript(nativeShimJs, null)
             }
         }
 
