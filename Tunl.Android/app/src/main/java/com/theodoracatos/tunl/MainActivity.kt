@@ -27,8 +27,9 @@ class MainActivity : ComponentActivity() {
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { }
 
     private val billing = BillingManager(this)
+    private val ads = AdsManager(this)
 
-    // Shims window.webkit.messageHandlers.{gameCenter,iap} so the game's existing
+    // Shims window.webkit.messageHandlers.{gameCenter,iap,ads} so the game's existing
     // iOS bridge calls (see update.js/draw.js/input.js) work unchanged on Android.
     private val nativeShimJs = """
         (function() {
@@ -44,11 +45,16 @@ class MainActivity : ComponentActivity() {
                     TunlNative.postMessage('iap', JSON.stringify(body));
                 }
             };
+            window.webkit.messageHandlers.ads = {
+                postMessage: function(body) {
+                    TunlNative.postMessage('ads', JSON.stringify(body));
+                }
+            };
         })();
     """.trimIndent()
 
     // Mirrors the iOS wrapper's WKScriptMessageHandler bridge: the game code calls
-    // window.webkit.messageHandlers.{gameCenter,iap}.postMessage({...}) unmodified
+    // window.webkit.messageHandlers.{gameCenter,iap,ads}.postMessage({...}) unmodified
     // on both platforms, funneled here via the shim above.
     private inner class NativeBridge {
         @JavascriptInterface
@@ -63,6 +69,10 @@ class MainActivity : ComponentActivity() {
                     "iap" -> when (body.optString("action")) {
                         "purchase" -> billing.purchaseRemoveAds(this@MainActivity)
                         "restore" -> billing.restore()
+                    }
+                    "ads" -> when (body.optString("action")) {
+                        "interstitialRequest" ->
+                            ads.requestInterstitial(billing.removeAdsOwned, body.optInt("score"))
                     }
                 }
             }
@@ -83,6 +93,11 @@ class MainActivity : ComponentActivity() {
             webView.evaluateJavascript("window._tunlNativeUpdate && window._tunlNativeUpdate($json)", null)
         }
         billing.start()
+
+        // Mirrors the iOS Coordinator's ads.onWillPresent/onDidDismiss closures,
+        // which pause/resume the page's Web Audio graph under the interstitial.
+        ads.onWillPresent = { webView.evaluateJavascript("window._pauseAudioForAd && window._pauseAudioForAd()", null) }
+        ads.onDidDismiss = { webView.evaluateJavascript("window._resumeAudioAfterAd && window._resumeAudioAfterAd()", null) }
 
         webView = WebView(this).apply {
             settings.javaScriptEnabled = true
@@ -129,6 +144,7 @@ class MainActivity : ComponentActivity() {
 
             override fun onPageFinished(view: WebView, url: String?) {
                 if (!supportsDocumentStart) view.evaluateJavascript(nativeShimJs, null)
+                ads.start()
             }
         }
 
