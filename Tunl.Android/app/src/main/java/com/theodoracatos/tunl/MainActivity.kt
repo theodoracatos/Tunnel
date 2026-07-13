@@ -1,6 +1,9 @@
 package com.theodoracatos.tunl
 
 import android.content.Context
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
 import android.os.VibrationEffect
@@ -137,6 +140,7 @@ class MainActivity : ComponentActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         hideSystemBars()
         signIntoPlayGames()
+        requestAudioFocus()
 
         // Mirrors the iOS Coordinator's iap.onUpdate closure, which pushes
         // ownership changes into the page via window._tunlNativeUpdate.
@@ -245,8 +249,52 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        abandonAudioFocus()
         billing.end()
         super.onDestroy()
+    }
+
+    private var audioFocusRequest: AudioFocusRequest? = null
+
+    // Chromium's WebView, unlike iOS's WKWebView (backed by AVAudioSession),
+    // never requests Android audio focus for Web Audio API playback -- without
+    // this, TUNL's music/sfx keep playing over phone call ringtones and other
+    // apps' audio with no ducking at all. Reuses the same pause/resume JS hooks
+    // already wired up for ads.onWillPresent/onDidDismiss above.
+    private fun requestAudioFocus() {
+        val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        val listener = AudioManager.OnAudioFocusChangeListener { focusChange ->
+            when (focusChange) {
+                AudioManager.AUDIOFOCUS_LOSS,
+                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
+                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK ->
+                    runJs("window._pauseAudioForAd && window._pauseAudioForAd()")
+                AudioManager.AUDIOFOCUS_GAIN ->
+                    runJs("window._resumeAudioAfterAd && window._resumeAudioAfterAd()")
+            }
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val attributes = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_GAME)
+                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                .build()
+            val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                .setAudioAttributes(attributes)
+                .setOnAudioFocusChangeListener(listener)
+                .build()
+            audioFocusRequest = request
+            audioManager.requestAudioFocus(request)
+        } else {
+            @Suppress("DEPRECATION")
+            audioManager.requestAudioFocus(listener, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN)
+        }
+    }
+
+    private fun abandonAudioFocus() {
+        val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        audioFocusRequest?.let {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) audioManager.abandonAudioFocusRequest(it)
+        }
     }
 
     private fun signIntoPlayGames() {

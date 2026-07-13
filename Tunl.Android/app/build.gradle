@@ -37,6 +37,11 @@ android {
     buildTypes {
         release {
             minifyEnabled false
+            // Wired up now (even with minifyEnabled false) so that turning
+            // minification on later doesn't fail outright from having no
+            // proguardFiles reference at all -- Billing/AdMob/UMP/Coroutines
+            // all bundle their own sufficient consumer rules already.
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
             if (keystorePropertiesFile.exists()) {
                 signingConfig signingConfigs.release
             }
