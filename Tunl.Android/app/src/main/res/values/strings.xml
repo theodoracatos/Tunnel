@@ -6,8 +6,12 @@
     <!-- Play Console -> Play Games Services -> Leaderboards -> (create "TUNL High Score") -> Leaderboard ID -->
     <string name="leaderboard_id" translatable="false">REPLACE_WITH_LEADERBOARD_ID</string>
 
-    <!-- AdMob console -> Apps -> TUNL (Android) -> App ID. Separate from the iOS app ID. -->
-    <string name="admob_app_id" translatable="false">REPLACE_WITH_ADMOB_APP_ID</string>
+    <!-- AdMob console -> Apps -> TUNL (Android) -> App ID. Separate from the iOS app ID.
+         Placeholder below is Google's published test App ID, required because the Mobile
+         Ads SDK validates this at process startup and crashes on launch if it isn't a
+         validly formatted ca-app-pub id, even a bogus one. Safe to ship until replaced,
+         but ad requests remain in test mode until it is. -->
+    <string name="admob_app_id" translatable="false">ca-app-pub-3940256099942544~3347511713</string>
     <!-- AdMob console -> Apps -> TUNL (Android) -> Ad units -> Interstitial -> Ad unit ID.
          Placeholder below is Google's published interstitial test unit ID, safe to ship
          until replaced but earns no real revenue. -->

@@ -26,8 +26,11 @@ class MainActivity : ComponentActivity() {
     private val leaderboardLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { }
 
-    private val billing = BillingManager(this)
-    private val ads = AdsManager(this)
+    // Lazy, not constructed inline: field initializers run during Activity
+    // construction, before attachBaseContext(), when `this` isn't yet a
+    // valid Context -- BillingClient/MobileAds both dereference it immediately.
+    private val billing by lazy { BillingManager(this) }
+    private val ads by lazy { AdsManager(this) }
 
     // Shims window.webkit.messageHandlers.{gameCenter,iap,ads} so the game's existing
     // iOS bridge calls (see update.js/draw.js/input.js) work unchanged on Android.
