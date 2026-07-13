@@ -141,14 +141,14 @@ class MainActivity : ComponentActivity() {
         // ownership changes into the page via window._tunlNativeUpdate.
         billing.onUpdate = { owned ->
             val json = "{\"removeAdsOwned\":$owned}"
-            webView.evaluateJavascript("window._tunlNativeUpdate && window._tunlNativeUpdate($json)", null)
+            runJs("window._tunlNativeUpdate && window._tunlNativeUpdate($json)")
         }
         billing.start()
 
         // Mirrors the iOS Coordinator's ads.onWillPresent/onDidDismiss closures,
         // which pause/resume the page's Web Audio graph under the interstitial.
-        ads.onWillPresent = { webView.evaluateJavascript("window._pauseAudioForAd && window._pauseAudioForAd()", null) }
-        ads.onDidDismiss = { webView.evaluateJavascript("window._resumeAudioAfterAd && window._resumeAudioAfterAd()", null) }
+        ads.onWillPresent = { runJs("window._pauseAudioForAd && window._pauseAudioForAd()") }
+        ads.onDidDismiss = { runJs("window._resumeAudioAfterAd && window._resumeAudioAfterAd()") }
 
         webView = WebView(this).apply {
             settings.javaScriptEnabled = true
@@ -200,6 +200,19 @@ class MainActivity : ComponentActivity() {
         }
 
         webView.loadUrl("https://appassets.androidplatform.net/assets/tunl.html")
+    }
+
+    // billing/ads callbacks are async SDK calls that can land after the user
+    // backgrounds mid-purchase or mid-ad; guards against poking a WebView
+    // whose Activity is already on its way out.
+    private fun runJs(script: String) {
+        if (isFinishing || isDestroyed) return
+        webView.evaluateJavascript(script, null)
+    }
+
+    override fun onDestroy() {
+        billing.end()
+        super.onDestroy()
     }
 
     private fun signIntoPlayGames() {

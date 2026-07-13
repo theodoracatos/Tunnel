@@ -21,6 +21,7 @@ import com.android.billingclient.api.queryProductDetails
 import com.android.billingclient.api.queryPurchasesAsync
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
 // Mirrors IAPManager.swift: a single non-consumable "Remove Ads" purchase via
@@ -77,6 +78,14 @@ class BillingManager(context: Context) {
         })
     }
 
+    // Mirrors IAPManager.swift's deinit, which cancels its background tasks.
+    // BillingClient explicitly documents that endConnection() should be called
+    // once the client is done with it to release the service binding.
+    fun end() {
+        scope.cancel()
+        billingClient.endConnection()
+    }
+
     private suspend fun queryProductDetails() {
         val params = QueryProductDetailsParams.newBuilder()
             .setProductList(
@@ -107,12 +116,36 @@ class BillingManager(context: Context) {
         }
     }
 
+    private var purchaseInFlight = false
+
+    // Mirrors IAPManager.swift's purchaseRemoveAds(), which re-fetches product
+    // details fresh on every tap rather than trusting a one-time preload -- if
+    // the initial queryProductDetails() in start() hasn't finished yet (slow
+    // network, or tapping right after cold launch), the cached details would
+    // be null and the button would silently do nothing. purchaseInFlight guards
+    // against a double-tap launching two overlapping fetch-then-purchase
+    // sequences while the cache is still empty.
     fun purchaseRemoveAds(activity: Activity) {
-        val details = removeAdsDetails
-        if (details == null) {
-            Log.w(TAG, "purchaseRemoveAds called before product details were loaded")
+        val cached = removeAdsDetails
+        if (cached != null) {
+            launchPurchaseFlow(activity, cached)
             return
         }
+        if (purchaseInFlight) return
+        purchaseInFlight = true
+        scope.launch {
+            queryProductDetails()
+            purchaseInFlight = false
+            val details = removeAdsDetails
+            if (details == null) {
+                Log.w(TAG, "purchaseRemoveAds: no product found for id $REMOVE_ADS_PRODUCT_ID")
+                return@launch
+            }
+            launchPurchaseFlow(activity, details)
+        }
+    }
+
+    private fun launchPurchaseFlow(activity: Activity, details: ProductDetails) {
         val offerToken = details.oneTimePurchaseOfferDetails?.offerToken ?: return
         val productParams = BillingFlowParams.ProductDetailsParams.newBuilder()
             .setProductDetails(details)
