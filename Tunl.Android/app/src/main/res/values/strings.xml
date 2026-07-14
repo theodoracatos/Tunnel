@@ -2,9 +2,9 @@
     <string name="app_name">TUNL</string>
 
     <!-- Play Console -> Play Games Services -> Setup -> Configuration -> App ID -->
-    <string name="game_services_project_id" translatable="false">REPLACE_WITH_PLAY_GAMES_APP_ID</string>
-    <!-- Play Console -> Play Games Services -> Leaderboards -> (create "TUNL High Score") -> Leaderboard ID -->
-    <string name="leaderboard_id" translatable="false">REPLACE_WITH_LEADERBOARD_ID</string>
+    <string name="game_services_project_id" translatable="false">56432371324</string>
+    <!-- Play Console -> Play Games Services -> Leaderboards -> "TUNL High Score" -> Leaderboard ID -->
+    <string name="leaderboard_id" translatable="false">CgkI_MyGndIBEAIQAQ</string>
 
     <!-- AdMob console -> Apps -> TUNL (Android) -> App ID. Separate from the iOS app ID.
          Placeholder below is Google's published test App ID, required because the Mobile
